@@ -301,23 +301,8 @@ export class DshAgentDriver implements AgentDriver {
   async main(context: MainContext, signal: AbortSignal): Promise<void> {
     const agent = await this.ensure(context.sessionId, false)
     this.archive?.bind({ session_id: agent.id, branch: 'main', run_id: context.runId, event_id: context.event.event_id })
-    // Between wakes, condense a large retained history before installing the fresh ten-per-source snapshot.
-    // Native idle maintenance serializes queued inputs and retains all raw events for history/topic reads.
-    if(this.archive){
-      const meter=agent.ctx.get('tokenMeter') as {measure(session:typeof agent.session):{totalTokens:number}}|undefined
-      if(meter&&meter.measure(agent.session).totalTokens>32768){
-        // The preset isolates compaction. Its native command captures that service
-        // and resolves by Agent scope; looking it up from agent.ctx silently fails.
-        const commands=agent.ctx.get('commands') as {execute(agent:Agent,line:string,attachments:readonly never[],signal:AbortSignal):Promise<{result:{kind:string;text?:string}}|undefined>}|undefined
-        const generation=agent.session.surface.replaceGeneration
-        const execution=await commands?.execute(agent,'/compact',[],signal)
-        signal.throwIfAborted()
-        if(!execution)throw new Error('Main pre-wake compaction command unavailable')
-        if(execution.result.kind!=='success')throw new Error(`Main pre-wake compaction failed: ${execution.result.text??'unknown error'}`)
-        if(agent.session.surface.replaceGeneration>generation)
-          this.archive.store.setRecord('role-compact-checkpoint',agent.id,{at:new Date().toISOString(),generation:agent.session.surface.replaceGeneration})
-      }
-    }
+    // The preset's native pre-step compaction owns pressure policy inside its
+    // isolated scope. Preserve full history until the model window is nearly full.
     // A scoped system section is rewritten on each wake, never appended as repeated user-history snapshots.
     const disposeRecent=this.archive?agent.ctx.systemPrompt.section({name:'amphoreus-recent-channels',order:99998,interpolate:false,
       text:()=>[recentChannelContext(this.archive!.store,context.event,event=>this.canAdmit(event)&&(event.platform!=='qq'||this.qqControl?.enabled(event.conversation_id)!==false)&&this.blocklist?.allowed(event)!==false),this.people?.context(context.origin)].filter(Boolean).join('\n')}):()=>{}
