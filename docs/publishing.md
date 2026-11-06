@@ -24,7 +24,7 @@ npm 包同时提供对应源码和构建说明；仓库源码与包内版本应�
 ```sh
 npm login
 npm whoami
-npm publish /absolute/private/release/hosisora_ling-dsh-amphoreus-0.1.0.tgz --access public
+npm publish /absolute/private/release/hosisora_ling-dsh-amphoreus-0.2.0.tgz --access public
 ```
 
 按 npm 提示完成账户验证。已发布的同一版本号不能覆盖，后续发布需要提升版本。本项目不在构建、安装或打包脚本中自动执行发布。

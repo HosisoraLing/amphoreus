@@ -2,7 +2,7 @@
   "components": [
     {
       "name": "翁法罗斯（Amphoreus）",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "purpose": "角色运行系统；本项目新增与修改部分采用AGPLv3，上游及第三方版权声明保留",
       "license": "AGPL-3.0-only",
       "source": "https://github.com/HosisoraLing/amphoreus",

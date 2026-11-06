@@ -2,7 +2,7 @@
   "name": "@hosisora_ling/dsh-amphoreus",
   "author": "Amphoreus contributors",
   "license": "AGPL-3.0-only",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "翁法罗斯（Amphoreus）：基于 DeepSeek Harness 的角色运行系统，统一消息网关、多层记忆、QQ 自主参与与后台助手。",
   "type": "module",
   "main": "lib/index.js",
