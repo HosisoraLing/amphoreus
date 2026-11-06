@@ -5,7 +5,7 @@
     "main": { "provider": "deepseek-account", "model": "deepseek-flash", "reasoningEffort": "high" },
     "worker": { "provider": "deepseek-account", "model": "deepseek-flash", "reasoningEffort": "high" }
   },
-  "limits": { "maxWorkers": 3, "mainSteps": 8, "mainTimeoutMs": 90000, "taskTimeoutMs": 3600000, "progressIntervalMs": 60000 },
+  "limits": { "maxWorkers": 3, "mainSteps": 8, "mainTimeoutMs": 300000, "taskTimeoutMs": 3600000, "progressIntervalMs": 60000 },
   "api": {
     "host": "127.0.0.1", "port": 13103, "allowedHosts": ["127.0.0.1:2333", "localhost:2333"],
     "tokens": [

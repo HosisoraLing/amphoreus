@@ -305,10 +305,17 @@ export class DshAgentDriver implements AgentDriver {
     // Native idle maintenance serializes queued inputs and retains all raw events for history/topic reads.
     if(this.archive){
       const meter=agent.ctx.get('tokenMeter') as {measure(session:typeof agent.session):{totalTokens:number}}|undefined
-      const compact=agent.ctx.get('compaction') as {compactNow(agent:Agent,signal:AbortSignal):Promise<unknown>}|undefined
-      if(compact&&meter&&meter.measure(agent.session).totalTokens>32768){
-        await compact.compactNow(agent,signal)
-        this.archive.store.setRecord('role-compact-checkpoint',agent.id,{at:new Date().toISOString(),generation:agent.session.surface.replaceGeneration})
+      if(meter&&meter.measure(agent.session).totalTokens>32768){
+        // The preset isolates compaction. Its native command captures that service
+        // and resolves by Agent scope; looking it up from agent.ctx silently fails.
+        const commands=agent.ctx.get('commands') as {execute(agent:Agent,line:string,attachments:readonly never[],signal:AbortSignal):Promise<{result:{kind:string;text?:string}}|undefined>}|undefined
+        const generation=agent.session.surface.replaceGeneration
+        const execution=await commands?.execute(agent,'/compact',[],signal)
+        signal.throwIfAborted()
+        if(!execution)throw new Error('Main pre-wake compaction command unavailable')
+        if(execution.result.kind!=='success')throw new Error(`Main pre-wake compaction failed: ${execution.result.text??'unknown error'}`)
+        if(agent.session.surface.replaceGeneration>generation)
+          this.archive.store.setRecord('role-compact-checkpoint',agent.id,{at:new Date().toISOString(),generation:agent.session.surface.replaceGeneration})
       }
     }
     // A scoped system section is rewritten on each wake, never appended as repeated user-history snapshots.
