@@ -69,8 +69,8 @@ export class MemoryArchive {
     if (!state || event.seq < state.offset) return
     const binding = state.binding
     if(binding.branch==='main')captureVitality(this.store,this.memory.agentId,event)
-    if (event.type === 'user/message' && ['dsh-amphoreus', 'dsh-superagent'].includes(event.data.source.kind)) {
-      const run = this.store.run(String(event.data.id).replace(/^dsh-(?:amphoreus|superagent):/, ''))
+    if (event.type === 'user/message' && ['dsh-amphoreus'].includes(event.data.source.kind)) {
+      const run = this.store.run(String(event.data.id).replace(/^dsh-amphoreus:/, ''))
       if (run && binding.branch === 'main') { binding.run_id = run.run_id; binding.event_id = run.event_id }
     }
     if (event.type === 'request/header') { binding.provider = event.data.header.config.provider; binding.model = event.data.header.config.model }

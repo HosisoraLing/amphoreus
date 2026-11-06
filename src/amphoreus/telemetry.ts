@@ -73,8 +73,8 @@ export class Telemetry {
     if (event.type === 'request/header') { state.provider = event.data.header.config.provider; state.model = event.data.header.config.model }
     if (event.type === 'step/start') state.stepAt = event.time
     if (event.type === 'turn/start' && state.cycle === undefined) state.cycle = event.time
-    if (event.type === 'user/message' && ['dsh-amphoreus', 'dsh-superagent'].includes(event.data.source.kind)) {
-      const run = this.store.run(String(event.data.id).replace(/^dsh-(?:amphoreus|superagent):/, ''))
+    if (event.type === 'user/message' && ['dsh-amphoreus'].includes(event.data.source.kind)) {
+      const run = this.store.run(String(event.data.id).replace(/^dsh-amphoreus:/, ''))
       if (run) { state.run = run.run_id; state.event = run.event_id; base.run = run.run_id; base.event = run.event_id }
     }
     if (event.type === 'assistant/message' || event.type === 'assistant/attempt') {

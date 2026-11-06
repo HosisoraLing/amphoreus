@@ -3,7 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { expect, it, vi } from 'vitest'
 import { stopSubagents, untilQuiet } from '../src/executor/background.ts'
-import { jobRegistry } from './fixtures/host.ts'
+import { jobRegistry } from './fixtures/jobs.ts'
 
 /** A context with DSH's job registry and subagents, and an idle worker agent with one live subagent, `child-1`. */
 function setup(waitForChildren: (agent: Agent) => Promise<boolean>, drainChildren: () => Promise<void> = async () => {}) {

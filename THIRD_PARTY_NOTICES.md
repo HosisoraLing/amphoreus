@@ -6,7 +6,7 @@
 
 | 组件 | 版本 | 许可 | 用途 |
 | --- | --- | --- | --- |
-| [DeepSeek Harness Superagent Prototype](https://github.com/deepseek-ai/dsh-superagent-prototype) | upstream | MIT | 本项目继承的基础架构与工作流 |
+| [DeepSeek Harness Superagent Prototype](https://github.com/deepseek-ai/dsh-superagent-prototype) | upstream | MIT | 保留的会话投递、模型路由与后台任务辅助代码 |
 | [@deepseek-ai/dsh](https://github.com/deepseek-ai/deepseek-harness) | 0.2.1-rc.4 | MIT | Agent 会话、推理与工具运行框架 |
 | [@deepseek-ai/cordis](https://github.com/deepseek-ai/deepseek-harness) | 4.0.5-alpha.1 | MIT | 插件与服务生命周期 |
 | [zod](https://github.com/colinhacks/zod) | 4.4.3 | MIT | 配置及接口校验 |

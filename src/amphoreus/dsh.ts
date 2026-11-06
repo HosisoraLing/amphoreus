@@ -14,9 +14,9 @@ import { z } from 'zod'
 import { AgentDelivery } from '../app/delivery.ts'
 import { initializeRoleModel } from '../app/role-models.ts'
 import { installRoleRouting, type ModelSettings } from './models.ts'
-import { WORKER_PRESET, ROUTER_PRESET } from '../app/sessions.ts'
+import { WORKER_PRESET, ROUTER_PRESET } from './presets.ts'
 import { stopBackground, untilQuiet } from '../executor/background.ts'
-import type { RoleModel } from '../policy.ts'
+import type { RoleModel } from '../app/role-models.ts'
 import type { AgentDriver, MainContext, ReportInput, Role } from './runtime.ts'
 import { isMemoryReview, type SubagentTask } from './model.ts'
 import { mainInput } from './main-input.ts'
@@ -311,7 +311,7 @@ export class DshAgentDriver implements AgentDriver {
     this.mainActive = active
     const off = this.ctx.on('session/event', (session, event) => {
       if (session !== agent.session || event.type !== 'user/message') return
-      const deliveryId = String(event.data.id).replace(/^dsh-superagent:/, 'dsh-amphoreus:')
+      const deliveryId = String(event.data.id)
       const input = active.expected.get(deliveryId)
       if (input) {
         this.media?.admitInbox(input.event.event_id)

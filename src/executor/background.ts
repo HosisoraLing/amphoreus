@@ -23,8 +23,6 @@ interface Subagents {
 const KILL_WAIT_MS = 10_000
 /** How long a release of subagents may take; it can hold up a shutdown, so DSH's own callers bound it too. */
 const DRAIN_LIMIT_MS = 10_000
-/** How long one wait that collects a job's end runs; one that ends with the job running is followed by the next. */
-const COLLECT_WAIT_MS = 10 * 60_000
 
 const registry = (ctx: Context): Jobs | undefined => ctx.get('jobs') as Jobs | undefined
 const subagentsOf = (ctx: Context): Subagents | undefined => ctx.get('subagents') as Subagents | undefined
@@ -42,8 +40,6 @@ export function until<T>(work: Promise<T>, signal?: AbortSignal, ms?: number): P
   timer?.unref?.()
   return Promise.race([work, stopped]).finally(() => { signal?.removeEventListener('abort', stop); clearTimeout(timer) })
 }
-/** The workers whose turn a stop of their subagents cancelled, whose next idle ends that turn rather than one of their own. */
-export const cancelled = new WeakSet<Agent>()
 /** The pending join of each worker's subagents, which DSH cannot cancel, so a later look joins the same one. */
 const joins = new WeakMap<Agent, Promise<boolean>>()
 function childrenEnd(subagents: Subagents, agent: Agent): Promise<boolean> {
@@ -53,14 +49,6 @@ function childrenEnd(subagents: Subagents, agent: Agent): Promise<boolean> {
     joins.set(agent, join)
   }
   return join
-}
-
-/** A job by its id and the first line of its label. */
-const named = (job: { id: string; label?: string }) => { const line = job.label?.split('\n')[0]?.trim(); return line ? `${job.id} (${line})` : job.id }
-/** The shell jobs the Session owns that still run, but those in `except`, with their names. */
-export const runningJobs = (ctx: Context, sessionId: string, except?: ReadonlySet<string>): { id: string; name: string }[] => {
-  const jobs = registry(ctx)
-  return jobs ? owned(jobs, sessionId, except).map(job => ({ id: job.id, name: named(job) })) : []
 }
 
 /**
@@ -119,21 +107,6 @@ export async function killJobs(ctx: Context, sessionId: string, reason: string, 
 }
 
 /**
- * Collect the end of a shell job the Session owns, so it wakes no one, until `signal` aborts.
- * @returns the job's name and status once it ended; undefined when `signal` aborted first.
- */
-export async function collectJob(ctx: Context, sessionId: string, job: { id: string; name: string }, signal: AbortSignal):
-  Promise<{ name: string; status: string } | undefined> {
-  const jobs = registry(ctx)
-  while (jobs && !signal.aborted) {
-    const view = await jobs.wait(job.id, COLLECT_WAIT_MS, sessionId, signal).catch(() => undefined)
-    if (!view) return undefined
-    if (!running(view.status)) return { name: job.name, status: view.status }
-  }
-  return undefined
-}
-
-/**
  * Release the worker's live subagents, for a bounded time. DSH delivers each one's end to the worker before the release
  * returns, which wakes it, so the worker's turn is cancelled after, keeping its inbox when `keepInbox`, and the stop ends
  * with that turn. Its Session still admits subagents.
@@ -146,7 +119,6 @@ export async function stopSubagents(ctx: Context, agent: Agent, keepInbox = fals
   if (!live.length) return
   try { await until(subagents.drainChildren(agent, live), undefined, DRAIN_LIMIT_MS) }
   finally {
-    if (agent.status !== 'idle') cancelled.add(agent)
     agent.cancel({ kind: 'user' }, { keepInbox })
     await until(agent.whenIdle(), undefined, DRAIN_LIMIT_MS)
   }

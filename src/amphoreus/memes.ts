@@ -10,7 +10,7 @@ import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import { packagePath } from '../infra/paths.ts'
 import type { ContentBlock, GatewayEvent } from './model.ts'
 import type { AmphoreusStore } from './store.ts'
-import type { RoleModel } from '../policy.ts'
+import type { RoleModel } from '../app/role-models.ts'
 
 type Row = { path:string;tag:string;caption:string;keywords:string;pack:string;packName:string }
 type Item = Row & { id:string }

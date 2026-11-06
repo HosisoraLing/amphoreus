@@ -607,7 +607,7 @@ function lastHumanText(agent) {
 }
 
 function isHuman(message) {
-  return Boolean(message) && (!message.source || message.source.kind === "user" || message.source.kind === "dsh-amphoreus" || message.source.kind === "dsh-superagent");
+  return Boolean(message) && (!message.source || message.source.kind === "user" || message.source.kind === "dsh-amphoreus");
 }
 
 // `deja install dsh` writes plugins of its own into DSH_HOME and adds them to

@@ -22,6 +22,23 @@ const message = (idempotency_key = 'qq:bot:group:message-1') => normalizeEvent({
   metadata: { group_name: 'example' }, visibility: 'private', idempotency_key,
 }, new Date('2026-11-03T00:01:00Z'))
 
+it('opens existing databases without old engine migrations and preserves nested rollback boundaries', () => {
+  const { store } = open()
+  expect(store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='ticket'").get()).toBeUndefined()
+  store.db.exec("CREATE TABLE private_old_data (id INTEGER PRIMARY KEY, body TEXT); INSERT INTO private_old_data VALUES (1,'preserve')")
+  store.atomic(() => {
+    store.db.exec("INSERT INTO private_old_data VALUES (2,'outer')")
+    expect(() => store.atomic(() => {
+      store.db.exec("INSERT INTO private_old_data VALUES (3,'inner')")
+      throw new Error('rollback inner')
+    })).toThrow('rollback inner')
+  })
+  store.close()
+  const reopened = new Store(join(directory, 'orchestrator.sqlite'))
+  expect(reopened.db.prepare('SELECT id,body FROM private_old_data ORDER BY id').all()).toEqual([{id:1,body:'preserve'},{id:2,body:'outer'}])
+  reopened.close()
+})
+
 it('normalizes and deduplicates structured gateway events without flattening content blocks', () => {
   const { store, gateway } = open()
   const event = message()

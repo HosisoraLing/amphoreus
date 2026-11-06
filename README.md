@@ -92,7 +92,7 @@ pnpm build
 dsh plugin --profile amphoreus add "link:$PWD"
 ```
 
-在 profile 中启用翁法罗斯业务 bundle，保留 DSH 的基础与 Web bundle，并按 [profile 配置示例](examples/profile.cordis.patch.yml) 设置独立 `stateDir`。无需再启用另一套 QQ、人物关系或全局 Deja 插件。
+在 profile 中启用翁法罗斯业务 bundle，保留 DSH 的基础与 Web bundle，并按 [profile 配置示例](examples/profile.cordis.patch.yml) 设置独立 `stateDir`，用 `configPath` 或环境变量指定私有角色文件。无需再启用另一套 QQ、人物关系或全局 Deja 插件。
 
 **已有 profile 不要重新初始化或整份覆盖配置。** 完整安装、认证、升级与数据迁移见 [部署指南](docs/009-amphoreus.md)。
 
@@ -101,7 +101,7 @@ dsh plugin --profile amphoreus add "link:$PWD"
 将 [配置示例](examples/amphoreus.json) 复制到仓库之外的私有目录，替换占位值。角色、人设、模型选择、工作区和渠道权限都由部署者提供，真实凭证由 DSH 或私有配置管理。
 
 ```sh
-AMPHOREUS_CONFIG=/absolute/private/amphoreus.json dsh amphoreus
+AMPHOREUS_CONFIG=/absolute/private/amphoreus.json dsh --profile amphoreus
 ```
 
 启动后，从 DSH 侧栏进入 **翁法罗斯**。嵌入入口为 `/amphoreus/`，独立管理入口为 `/console/`；两者连接同一个角色与数据库。
@@ -136,9 +136,7 @@ AMPHOREUS_CONFIG=/absolute/private/amphoreus.json dsh amphoreus
 | 记忆、原文与旧数据 | [Memory Foundation](docs/010-memory-foundation.md) · [迁移说明](docs/amphoreus-legacy-import.md) · [话题串](docs/topic-threads.md) |
 | 消息、群聊与权限 | [统一发言](docs/amphoreus-speak.md) · [群聊参与](docs/amphoreus-social-presence.md) · [开关](docs/amphoreus-controls.md) · [黑名单](docs/user-blacklist.md) |
 | 模型与人际关系 | [分角色模型](docs/amphoreus-models.md) · [人物关系](docs/amphoreus-people.md) |
-| 上游原型工作流 | [设计理念](docs/000-philosophy.md) · [架构](docs/007-architecture.md) · [扩展 Source](docs/008-cookbook.md) |
 
-未设置 `AMPHOREUS_CONFIG` 时，程序保留上游 GitHub / 飞书工作流模式。早期编号文档主要描述该模式；角色模式从部署指南读起即可。
 
 ## 开发与贡献
 

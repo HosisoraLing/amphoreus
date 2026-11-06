@@ -1,4 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { IncomingMessage } from 'node:http'
 import type { AmphoreusHttp } from './http.ts'
 

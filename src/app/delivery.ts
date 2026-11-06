@@ -8,22 +8,16 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     'dsh-amphoreus': { kind: 'dsh-amphoreus' } & ContextFormed
-    /** Read-only compatibility with persisted sessions from before the rename. */
-    'dsh-superagent': { kind: 'dsh-superagent' } & ContextFormed
   }
 }
 
 type Seen = { ids: Set<string>; loaded?: Promise<void> }
 /** The id of the message delivered under `requestId`, the same on every retry. */
 export const messageId = (requestId: string) => MessageId(`dsh-amphoreus:${requestId}`)
-export const isOwnSource = (kind: string): boolean => kind === 'dsh-amphoreus' || kind === 'dsh-superagent'
-/** Extracts the idempotency key from current or legacy plugin message sources. */
+export const isOwnSource = (kind: string): boolean => kind === 'dsh-amphoreus'
+/** Extracts the idempotency key of an Amphoreus delivery. */
 function deliveryId(message: UserMessage): string | undefined {
-  // Persisted sources may predate the current producer-specific source map.
-  const source: { kind: string; plugin?: unknown; rpcId?: unknown } = message.source
-  if (isOwnSource(source.kind) || (source.kind === 'plugin' && typeof source.plugin === 'string' && isOwnSource(source.plugin))) return String(message.id).replace(/^dsh-superagent:/, 'dsh-amphoreus:')
-  // Requests admitted by the former user RPC retain their original attribution.
-  if (source.kind === 'user' && 'rpcId' in source && typeof source.rpcId === 'string') return messageId(source.rpcId)
+  return isOwnSource(message.source.kind) ? String(message.id) : undefined
 }
 
 /**

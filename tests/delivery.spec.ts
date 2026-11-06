@@ -1,9 +1,9 @@
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, freezeMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId, SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { expect, it, vi } from 'vitest'
-import { AgentDelivery } from '../src/app/delivery.ts'
+import { AgentDelivery, messageId } from '../src/app/delivery.ts'
 
 function fixture(history: UserMessage[] = []) {
   const ctx = new Context()
@@ -54,47 +54,6 @@ it.each(['queue', 'steer'] as const)('delivers %s as an orchestrator relay, dedu
   expect(restored.followup).not.toHaveBeenCalled()
 })
 
-it.each(['pending', 'consumed', 'live'] as const)('recognizes legacy plugin identity in %s input without rewriting it', async location => {
-  // Bypass TypeScript's current source union to construct the retired serialized shape.
-  const old: UserMessage = JSON.parse(JSON.stringify({ id: 'dsh-superagent:request', role: 'user', content: [], source: { kind: 'plugin', plugin: 'dsh-superagent', form: 'relay' } }))
-  const before = JSON.stringify(old)
-  const f = fixture(location === 'consumed' ? [old] : [])
-  if (location === 'pending') f.inbox.nextTurn.push(old)
-  if (location === 'live') f.read.mockImplementationOnce(async () => { f.consume(old); return { events: [] } })
-  await f.send()
-  expect(f.steer).not.toHaveBeenCalled()
-  expect(JSON.stringify(old)).toBe(before)
-  await f.send('different-request')
-  expect(f.steer).toHaveBeenCalledOnce()
-})
-
-it.each(['another-plugin', undefined])('does not treat a legacy plugin source %s as this producer', async plugin => {
-  const old: UserMessage = JSON.parse(JSON.stringify({ id: 'dsh-amphoreus:request', role: 'user', content: [], source: { kind: 'plugin', plugin, form: 'relay' } }))
-  const f = fixture([old])
-  await f.send()
-  expect(f.steer).toHaveBeenCalledOnce()
-})
-
-it.each(['pending', 'consumed'] as const)('deduplicates pre-rename producer messages in %s history', async location => {
-  const old = JSON.parse(JSON.stringify({ id: 'dsh-superagent:request', role: 'user', content: [], source: { kind: 'dsh-superagent', form: 'relay' } })) as UserMessage
-  const f = fixture(location === 'consumed' ? [old] : [])
-  if (location === 'pending') f.inbox.nextTurn.push(old)
-  expect(await f.holds('request')).toBe(true)
-  await f.send()
-  expect(f.steer).not.toHaveBeenCalled()
-})
-
-it.each(['pending', 'consumed'] as const)('recognizes legacy user RPC identity in %s input', async location => {
-  const old = createUserMessage({ content: [{ type: 'text', text: 'old relay' }], source: { kind: 'user', rpcId: 'request' } })
-  const f = fixture(location === 'consumed' ? [old] : [])
-  if (location === 'pending') f.inbox.nextTurn.push(old)
-  await f.send()
-  expect(f.steer).not.toHaveBeenCalled()
-  expect(old.source.kind).toBe('user')
-  await f.send('different-request')
-  expect(f.steer).toHaveBeenCalledOnce()
-})
-
 it('retries a failed durability barrier without another delivery and permits concurrent retries', async () => {
   const f = fixture()
   f.flush.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('disk busy'))
@@ -106,7 +65,7 @@ it('retries a failed durability barrier without another delivery and permits con
 })
 
 it('retries history failures and reads past the first page', async () => {
-  const old = createUserMessage({ content: [], source: { kind: 'user', rpcId: 'request' } })
+  const old = freezeMessage({ id: messageId('request'), role: 'user' as const, content: [], source: { kind: 'dsh-amphoreus' as const, form: 'relay' as const } })
   const f = fixture([...Array.from({ length: 512 }, () => createUserMessage({ content: [], source: { kind: 'user' } })), old])
   f.read.mockRejectedValueOnce(new Error('read failed'))
   await expect(f.send()).rejects.toThrow('read failed')
@@ -117,7 +76,7 @@ it('retries history failures and reads past the first page', async () => {
 
 it('keeps consumption that happens during the initial history read', async () => {
   const f = fixture()
-  const old = createUserMessage({ content: [], source: { kind: 'user', rpcId: 'request' } })
+  const old = freezeMessage({ id: messageId('request'), role: 'user' as const, content: [], source: { kind: 'dsh-amphoreus' as const, form: 'relay' as const } })
   f.read.mockImplementationOnce(async () => { f.consume(old); return { events: [] } })
   await f.send()
   expect(f.steer).not.toHaveBeenCalled()

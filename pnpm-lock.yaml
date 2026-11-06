@@ -33,28 +33,16 @@ importers:
       '@deepseek-ai/dsh-attachment':
         specifier: 0.2.1-alpha.2
         version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-brand@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))
-      '@deepseek-ai/dsh-client-locale':
-        specifier: 0.2.1-alpha.2
-        version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)
       '@deepseek-ai/dsh-client-ui-layout':
         specifier: 0.2.1-alpha.2
         version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)
-      '@deepseek-ai/dsh-client-ui-plugin-manager':
-        specifier: 0.2.1-alpha.2
-        version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)
       '@deepseek-ai/dsh-client-ui-renderer':
-        specifier: 0.2.1-alpha.2
-        version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)
-      '@deepseek-ai/dsh-client-ui-settings':
         specifier: 0.2.1-alpha.2
         version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)
       '@deepseek-ai/dsh-client-ui-sidebar':
         specifier: 0.2.1-alpha.2
         version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)
       '@deepseek-ai/dsh-client-ui-slots':
-        specifier: 0.2.1-alpha.2
-        version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)
-      '@deepseek-ai/dsh-client-ui-workspace':
         specifier: 0.2.1-alpha.2
         version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)
       '@deepseek-ai/dsh-compaction-basic':
@@ -78,15 +66,6 @@ importers:
       '@deepseek-ai/dsh-session-persistence':
         specifier: 0.2.1-alpha.2
         version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-brand@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-session@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-scope@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)))(@deepseek-ai/dsh-timeout@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))
-      '@deepseek-ai/dsh-settings':
-        specifier: 0.2.1-alpha.2
-        version: 0.2.1-alpha.2(6161e314765bd7ff8c5440181793a42a)
-      '@deepseek-ai/dsh-skill':
-        specifier: 0.2.1-alpha.2
-        version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-llm@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-scope@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))
-      '@deepseek-ai/dsh-subprocess':
-        specifier: 0.2.1-alpha.2
-        version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-http-proxy@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))
       '@deepseek-ai/dsh-system-prompt':
         specifier: 0.2.1-alpha.2
         version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-llm@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-scope@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))

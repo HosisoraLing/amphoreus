@@ -32,7 +32,7 @@ export function projectTaskActivity(events: readonly SessionEvent[], secrets: st
       const text = textOf(event.data.message.content)
       if (text) item = { ...base, kind: 'message', role: 'assistant', text }
     } else if (event.type === 'user/message') {
-      if (!['dsh-amphoreus', 'dsh-superagent', 'user'].includes(event.data.source.kind)) return []
+      if (!['dsh-amphoreus', 'user'].includes(event.data.source.kind)) return []
       const text = textOf(event.data.content)
       const structured = argumentsOf(text)
       if (structured && typeof structured === 'object') {

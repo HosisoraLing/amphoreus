@@ -1,36 +1,18 @@
-/** Main plugin entry: mounts the Runtime and provides its restart callback for deployment account changes. */
+/** Amphoreus character runtime and its public gateway/storage APIs. */
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-settings'
-import { Runtime } from './app/runtime.ts'
-import { Config, machineOf, type DeploymentConfig } from './deployment.ts'
+import { Config, type DeploymentConfig } from './deployment.ts'
 import { startAmphoreus } from './amphoreus/start.ts'
 
 export const name = '翁法罗斯'
-export const inject = ['agents', 'sessionController', 'sessionPersistence', 'workspaceRegistry', 'permissionPresets', 'tools', 'systemPrompt', 'skills', 'webServer', 'llm', 'subprocess', 'attachments']
+export const inject = ['agents', 'sessionController', 'sessionPersistence', 'workspaceRegistry', 'permissionPresets', 'tools', 'systemPrompt', 'webServer', 'llm', 'attachments']
 export { Config }
 export async function apply(ctx: Context, config: DeploymentConfig): Promise<void> {
-  const machine = machineOf(config)
-  if (process.env.AMPHOREUS_CONFIG) {
-    const stop = await startAmphoreus(ctx, machine.stateDir, process.env.AMPHOREUS_CONFIG)
-    ctx.effect(() => stop)
-    return
-  }
-  // The management panel provides its own settings UI, so disable DSH's auto-generated settings page.
-  ctx.inject(['settings'], child => { child.effect(() => child.settings.configure({ auto: false }, ctx.fiber)) })
-  // Volatile limits update in place without a restart; account changes restart dsh-amphoreus. DSH's settings service stops
-  // serving this entry while dsh-amphoreus restarts and rereads it only on a configuration write, so trigger `describe()`
-  // after restart to keep open configuration forms editable without a page reload.
-  // TODO: drop the read once DSH's settings service rereads an entry whose plugin becomes active again.
-  const restart = (): void => {
-    ctx.fiber.restart().then(() => { ctx.get('settings')?.describe() }).catch((error: unknown) => { ctx.logger.error('dsh-amphoreus restart failed: %s', String(error)) })
-  }
-  const runtime = new Runtime(ctx, machine, restart)
-  ctx.effect(() => async () => { await runtime.stop() })
-  await runtime.ready
-  ctx.logger.info(runtime.configured() ? 'dsh-amphoreus ready; 翁法罗斯侧栏入口已就绪' : `dsh-amphoreus is waiting for setup: ${runtime.setupProblem?.detail ?? ''}`)
+  const configPath = config.configPath || process.env.AMPHOREUS_CONFIG
+  if (!configPath) throw new Error('请在插件配置中设置 configPath，或提供 AMPHOREUS_CONFIG 环境变量。')
+  const stop = await startAmphoreus(ctx, config.stateDir, configPath)
+  ctx.effect(() => stop)
 }
-export type { Deployment, DeploymentConfig } from './deployment.ts'
-export * from './core/index.ts'
+export type { DeploymentConfig } from './deployment.ts'
 export * from './amphoreus/model.ts'
 export * from './amphoreus/store.ts'
 export * from './amphoreus/gateway.ts'

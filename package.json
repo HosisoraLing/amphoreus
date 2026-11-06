@@ -13,8 +13,6 @@
       "default": "./lib/index.js"
     },
     "./client": "./lib/client.js",
-    "./github-watch": "./lib/github-watch.js",
-    "./feishu-watch": "./lib/feishu-watch.js",
     "./package.json": "./package.json",
     "./locale/*.json": "./locale/*.json",
     "./role-compaction": "./lib/role-compaction.js",
@@ -25,8 +23,6 @@
     "cordis.patch.yml",
     "locale/*.json",
     "README.md",
-    "prompts",
-    "skills",
     "vendor",
     "LICENSE",
     "LICENSES",
@@ -49,12 +45,9 @@
     "client": {
       "platform": "web",
       "inject": [
-        "@deepseek-ai/dsh-client-locale",
-        "@deepseek-ai/dsh-client-ui-settings",
         "@deepseek-ai/dsh-client-ui-renderer",
         "@deepseek-ai/dsh-client-ui-layout",
-        "@deepseek-ai/dsh-client-ui-sidebar",
-        "@deepseek-ai/dsh-client-ui-workspace"
+        "@deepseek-ai/dsh-client-ui-sidebar"
       ]
     },
     "manifestVersion": 1
@@ -82,41 +75,31 @@
     "@deepseek-ai/dsh-agent": "^0.2.1-alpha.2",
     "@deepseek-ai/dsh-api-session-controller": "^0.2.1-alpha.2",
     "@deepseek-ai/dsh-attachment": "^0.2.1-alpha.2",
-    "@deepseek-ai/dsh-client-locale": "^0.2.1-alpha.2",
     "@deepseek-ai/dsh-client-ui-layout": "^0.2.1-alpha.2",
     "@deepseek-ai/dsh-client-ui-renderer": "^0.2.1-alpha.2",
-    "@deepseek-ai/dsh-client-ui-settings": "^0.2.1-alpha.2",
     "@deepseek-ai/dsh-client-ui-sidebar": "^0.2.1-alpha.2",
     "@deepseek-ai/dsh-client-ui-slots": "^0.2.1-alpha.2",
-    "@deepseek-ai/dsh-client-ui-workspace": "^0.2.1-alpha.2",
     "@deepseek-ai/dsh-host-webserver": "^0.2.1-alpha.2",
     "@deepseek-ai/dsh-llm": "^0.2.1-alpha.2",
     "@deepseek-ai/dsh-permission-presets": "^0.2.1-alpha.2",
     "@deepseek-ai/dsh-scope": "^0.2.1-alpha.2",
     "@deepseek-ai/dsh-session": "^0.2.1-alpha.2",
     "@deepseek-ai/dsh-session-persistence": "^0.2.1-alpha.2",
-    "@deepseek-ai/dsh-skill": "^0.2.1-alpha.2",
-    "@deepseek-ai/dsh-subprocess": "^0.2.1-alpha.2",
     "@deepseek-ai/dsh-system-prompt": "^0.2.1-alpha.2",
     "@deepseek-ai/dsh-tools": "^0.2.1-alpha.2",
     "@deepseek-ai/dsh-workspace": "^0.2.1-alpha.2",
     "@deepseek-ai/schemastery": "3.18.5-alpha.1",
-    "@deepseek-ai/dsh-compaction-basic": "^0.2.1-alpha.2",
-    "@deepseek-ai/dsh-llm-pi-ai": "^0.2.1-alpha.2"
+    "@deepseek-ai/dsh-compaction-basic": "^0.2.1-alpha.2"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.5-alpha.1",
     "@deepseek-ai/dsh-agent": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-api-session-controller": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-attachment": "0.2.1-alpha.2",
-    "@deepseek-ai/dsh-client-locale": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-client-ui-layout": "0.2.1-alpha.2",
-    "@deepseek-ai/dsh-client-ui-plugin-manager": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-client-ui-renderer": "0.2.1-alpha.2",
-    "@deepseek-ai/dsh-client-ui-settings": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-client-ui-sidebar": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-client-ui-slots": "0.2.1-alpha.2",
-    "@deepseek-ai/dsh-client-ui-workspace": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-compaction-basic": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-host-webserver": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-llm": "0.2.1-alpha.2",
@@ -124,9 +107,6 @@
     "@deepseek-ai/dsh-scope": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-session": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-session-persistence": "0.2.1-alpha.2",
-    "@deepseek-ai/dsh-settings": "0.2.1-alpha.2",
-    "@deepseek-ai/dsh-skill": "0.2.1-alpha.2",
-    "@deepseek-ai/dsh-subprocess": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-system-prompt": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-tools": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-workspace": "0.2.1-alpha.2",
@@ -144,11 +124,6 @@
     "tsdown": "0.22.14",
     "typescript": "6.0.3",
     "vitest": "4.1.8"
-  },
-  "peerDependenciesMeta": {
-    "@deepseek-ai/dsh-llm-pi-ai": {
-      "optional": true
-    }
   },
   "repository": {
     "type": "git",

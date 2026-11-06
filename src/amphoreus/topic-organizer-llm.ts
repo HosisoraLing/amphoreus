@@ -1,7 +1,7 @@
 /** Isolated background Agent inference: no Main wake, tools, external sends or shared conversation context. */
 import type { Context } from '@deepseek-ai/cordis'
 import { BlockAssembler,createSystemMessage,type TokenUsage } from '@deepseek-ai/dsh-llm'
-import type { RoleModel } from '../policy.ts'
+import type { RoleModel } from '../app/role-models.ts'
 import { ORGANIZER_PROMPT,type OrganizerClassify } from './topic-organizer.ts'
 export function organizerClassifier(ctx:Context,route:()=>RoleModel|null,settled?:(provider:string,model:string,usage:TokenUsage|undefined,duration:number,ok:boolean)=>void):OrganizerClassify {
  return async(input,signal)=>{

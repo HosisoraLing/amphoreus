@@ -38,10 +38,10 @@ dsh plugin --profile amphoreus add "link:$PWD"
 | `memory` | 记忆策略、时区及夜间回顾 |
 | `limits` | 普通 Main、内部审阅和后台任务的时间及步数限制 |
 
-通过环境变量启用角色模式：
+在插件配置中设置 `configPath` 指向角色文件，或通过环境变量提供路径：
 
 ```sh
-AMPHOREUS_CONFIG=/absolute/private/amphoreus.json dsh amphoreus
+AMPHOREUS_CONFIG=/absolute/private/amphoreus.json dsh --profile amphoreus
 ```
 
 配置文件设置为仅部署账户可读。API 和 OneBot 使用不同令牌，不能继续使用示例占位值。示例监听回环地址；若需要跨容器访问，在部署端配置实际监听接口和最小必要端口映射。将浏览器使用的准确 `host:port` 加入 `api.allowedHosts`。
@@ -82,7 +82,7 @@ OneBot 只负责收发；解析、权限、去重、群聊参与和多模态处�
 
 ## 数据与升级
 
-私有配置、DSH home、数据库、原生日志、工作区和作品分别持久化。程序更新不应重建这些目录。旧部署可保留原状态路径和会话标识，通过兼容代码读取已有记录。
+私有配置、DSH home、数据库、原生日志、工作区和作品分别持久化。程序更新不应重建这些目录。旧部署可保留原状态路径和会话标识，程序继续读取原有翁法罗斯数据，不删除旧表或改写原生日志。
 
 数据迁移与完整导出说明见 [010-memory-foundation.md](010-memory-foundation.md) 和 [amphoreus-legacy-import.md](amphoreus-legacy-import.md)。复制旧图库与索引时应生成独立副本并核对内容，不能依赖旧服务目录的链接。
 
