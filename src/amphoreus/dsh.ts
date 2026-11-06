@@ -40,8 +40,8 @@ import { captureVitality } from './vitality.ts'
 import type { MemeService } from './memes.ts'
 import { Speak,speakContent,speakTarget,speakResult } from './speak.ts'
 
-// Zod adds non-enumerable Standard Schema metadata; DSH requires plain JSON.
-const toolParameters = (schema: z.ZodType) => JSON.parse(JSON.stringify(z.toJSONSchema(schema)))
+/** zod 的 toJSONSchema 结果带不可枚举的 ~standard，宿主无损 JSON 校验会拒绝；克隆成纯 JSON。 */
+const jsonSchema = (schema: z.ZodType) => JSON.parse(JSON.stringify(z.toJSONSchema(schema)))
 
 export const Blocks = z.array(z.object({ type: z.string().min(1).max(80) }).passthrough()).min(1).max(100)
 export const Report = z.object({ type: z.enum(['progress', 'thought', 'discovery', 'question', 'completed', 'failed']), summary: z.string().min(1).max(16000),
@@ -107,7 +107,7 @@ export class DshAgentDriver implements AgentDriver {
   }
   private register<S extends z.ZodType>(agent: Agent, name: string, description: string, schema: S,
     execute: (args: z.infer<S>, callId: string) => Promise<unknown> | unknown,render?:(value:unknown)=>ModelBlock[]): () => void {
-    return agent.ctx.tools.register({ name, description, parameters: toolParameters(schema),
+    return agent.ctx.tools.register({ name, description, parameters: jsonSchema(schema),
       output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => render?render(value):[{ type: 'text', text: JSON.stringify(value) }] },
       execute: (args, execution) => { execution.signal.throwIfAborted(); return Promise.resolve(execute(schema.parse(args), execution.callId)).then(value => Array.isArray(value) ? { items: value } : value) } })
   }
@@ -208,7 +208,7 @@ export class DshAgentDriver implements AgentDriver {
     return [
       ...(this.media ? [agent.ctx.tools.register({ name: 'read_media',
         description: '主动读取完整附件。name查当前及近期同一会话，或给event_id/index（从0起）；历史附件可给memory_id。图片动图已直接可见，语音已转写，不必重复读取。动图默认最多5帧；只有需要细看时显式设置frames（最多16），不自动展开更多。',
-        parameters: toolParameters(z.object({ event_id: z.string().min(1).optional(),memory_id:z.string().min(1).optional(), index: z.number().int().min(0).default(0), name: z.string().optional(), frames:z.number().int().min(1).max(16).default(5) }).strict()),
+        parameters: jsonSchema(z.object({ event_id: z.string().min(1).optional(),memory_id:z.string().min(1).optional(), index: z.number().int().min(0).default(0), name: z.string().optional(), frames:z.number().int().min(1).max(16).default(5) }).strict()),
         output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => (value as unknown as { content: ModelBlock[] }).content },
         execute: async (args, execution) => {
           const input = z.object({ event_id: z.string().min(1).optional(),memory_id:z.string().min(1).optional(), index: z.number().int().min(0).default(0), name: z.string().optional(), frames:z.number().int().min(1).max(16).default(5) }).strict().parse(args)
@@ -220,7 +220,7 @@ export class DshAgentDriver implements AgentDriver {
         },
       }), agent.ctx.tools.register({ name: 'read_forward',
         description: '主动展开合并转发。默认本次唤醒，index按卡片出现顺序从0起（含引用），分页读取；无需消息ID。event_id仅指定历史来源时用。',
-        parameters: toolParameters(z.object({ event_id: z.string().min(1).optional(), index: z.number().int().min(0).default(0), offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(10).default(5) }).strict()),
+        parameters: jsonSchema(z.object({ event_id: z.string().min(1).optional(), index: z.number().int().min(0).default(0), offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(10).default(5) }).strict()),
         output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => (value as unknown as { content: ModelBlock[] }).content },
         execute: async (args, execution) => {
           const input = z.object({ event_id: z.string().min(1).optional(), index: z.number().int().min(0).default(0), offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(10).default(5) }).strict().parse(args)
@@ -301,8 +301,16 @@ export class DshAgentDriver implements AgentDriver {
   async main(context: MainContext, signal: AbortSignal): Promise<void> {
     const agent = await this.ensure(context.sessionId, false)
     this.archive?.bind({ session_id: agent.id, branch: 'main', run_id: context.runId, event_id: context.event.event_id })
-    // The preset's native pre-step compaction owns pressure policy inside its
-    // isolated scope. Preserve full history until the model window is nearly full.
+    // Between wakes, condense a large retained history before installing the fresh ten-per-source snapshot.
+    // Native idle maintenance serializes queued inputs and retains all raw events for history/topic reads.
+    if(this.archive){
+      const meter=agent.ctx.get('tokenMeter') as {measure(session:typeof agent.session):{totalTokens:number}}|undefined
+      const compact=agent.ctx.get('compaction') as {compactNow(agent:Agent,signal:AbortSignal):Promise<unknown>}|undefined
+      if(compact&&meter&&meter.measure(agent.session).totalTokens>32768){
+        await compact.compactNow(agent,signal)
+        this.archive.store.setRecord('role-compact-checkpoint',agent.id,{at:new Date().toISOString(),generation:agent.session.surface.replaceGeneration})
+      }
+    }
     // A scoped system section is rewritten on each wake, never appended as repeated user-history snapshots.
     const disposeRecent=this.archive?agent.ctx.systemPrompt.section({name:'amphoreus-recent-channels',order:99998,interpolate:false,
       text:()=>[recentChannelContext(this.archive!.store,context.event,event=>this.canAdmit(event)&&(event.platform!=='qq'||this.qqControl?.enabled(event.conversation_id)!==false)&&this.blocklist?.allowed(event)!==false),this.people?.context(context.origin)].filter(Boolean).join('\n')}):()=>{}
