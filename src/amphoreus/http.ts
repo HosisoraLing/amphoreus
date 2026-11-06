@@ -363,8 +363,10 @@ export class AmphoreusHttp {
       if (url.pathname === '/api/dreaming' && this.dreaming) {
         if (method === 'GET') { json(res, 200, this.dreaming.status()); return }
         if (method === 'POST') {
-          const input = z.object({ idempotency_key: z.string().min(1).max(200), job_id:z.string().min(1).max(200).optional() }).strict().parse(await body(req))
-          const job = input.job_id?await this.dreaming.reviewReady(input.job_id,input.idempotency_key):await this.dreaming.schedule(true, input.idempotency_key); json(res, 202, { job: job ?? null }); return
+          const input = z.object({ idempotency_key: z.string().min(1).max(200), job_id:z.string().min(1).max(200).optional(),action:z.enum(['review','resume']).default('review'),
+            backfill:z.object({from:z.number().int().min(0),to:z.number().int().positive()}).strict().optional() }).strict().parse(await body(req))
+          if(input.backfill&&input.job_id||input.action==='resume'&&!input.job_id)throw new HttpError(400,'恢复需要job_id，回填与恢复不能同时请求')
+          const job = input.backfill?await this.dreaming.backfill(input.backfill.from,input.backfill.to,input.idempotency_key):input.job_id?(input.action==='resume'?this.dreaming.resume(input.job_id):await this.dreaming.reviewReady(input.job_id,input.idempotency_key)):await this.dreaming.schedule(true, input.idempotency_key); json(res, 202, { job: job ?? null }); return
         }
       }
       const review = /^\/api\/memory\/([^/]+)\/review$/.exec(url.pathname)

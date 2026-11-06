@@ -6,6 +6,10 @@ export interface MemoryAuthor { branch: MemoryBranch; source: MemorySource; call
 export const Memorize = z.object({ kind: z.enum(['candidate','insight','topic','diary_draft','self_draft']), title: z.string().min(1).max(200),
   content: z.string().min(1).max(32000), source_ids: z.array(z.string()).max(100).default([]), importance: z.number().min(0).max(1).default(.4),
   topic_id: z.string().optional(), related_task: z.string().optional(), replaces: z.string().optional(), job_id: z.string().optional(),
+  category:z.enum(['fact','preference','agreement','relationship','project','open_question','creative_insight']).optional(),
+  evidence_type:z.enum(['explicit','observed','inferred']).optional(), entity_refs:z.array(z.string().min(1)).max(30).optional(),
+  observed_at:z.iso.datetime({offset:true}).optional(), valid_from:z.iso.datetime({offset:true}).nullable().optional(), valid_to:z.iso.datetime({offset:true}).nullable().optional(),
+  review_job_id:z.string().optional(),
   diary_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).strict()
 
 /** Candidate extraction and documented adoption are separate operations with distinct authorities. */
@@ -54,7 +58,12 @@ export class Recollection {
   }
   private record(input:z.infer<typeof Memorize>,author:MemoryAuthor){
     if (['worker','topic'].includes(author.branch) && ['diary_draft','self_draft'].includes(input.kind)) throw new Error('Technical workers may record objective candidates, not personal diary or Self drafts')
-    const id = memoryId('candidate', this.memory.agentId, author.source.session_id, author.call_id, input.kind)
+    const jobId=input.review_job_id??input.job_id
+    const structured=['candidate','insight'].includes(input.kind)&&!!input.category
+    if(structured&&!input.source_ids.length)throw Error('Structured candidates require real source_ids')
+    if(input.valid_from&&input.valid_to&&input.valid_from>=input.valid_to)throw Error('Invalid fact validity interval')
+    const id = structured&&jobId?memoryId('consolidated-candidate',this.memory.agentId,jobId,[...new Set(input.source_ids)].sort(),input.category,input.content.normalize('NFKC').trim().replace(/\s+/g,' '))
+      :memoryId('candidate', this.memory.agentId, author.source.session_id, author.call_id, input.kind)
     const existing=this.memory.get(id)
     if(existing)return existing
     const replaced=input.replaces?this.memory.get(input.replaces):undefined
@@ -71,12 +80,24 @@ export class Recollection {
       if (!record) throw new Error('Source memory is unavailable or belongs to another role')
       return record
     })
+    if(structured){
+      if(input.evidence_type==='explicit'&&!sources.some(source=>source.kind==='input'))throw Error('Explicit evidence requires an original input')
+      if(input.evidence_type==='observed'&&!sources.some(source=>source.kind==='input'||source.kind==='speak'&&source.status==='sent'||source.kind==='tool'&&source.status==='completed'))throw Error('Observed evidence requires a real observation or successful action')
+      if(jobId){
+        const job=this.memory.get(jobId)
+        if(job?.kind!=='consolidation')throw Error('Consolidation job not found')
+        const rows=this.memory.host.db.prepare(`SELECT rowid AS position FROM amphoreus_memory WHERE agent_id=? AND id IN (${sourceIds.map(()=>'?').join(',')})`).all(this.memory.agentId,...sourceIds)
+        if(!rows.some(row=>Number(row.position)>Number(job.data.from)&&Number(row.position)<=Number(job.data.to)))throw Error('Candidate has no evidence inside the frozen review window')
+      }
+    }
     const evidence = sources.some(r => r.kind === 'tool' && r.status === 'completed') || sources.some(r => r.kind === 'input' && /记住|重要|承诺|长期/.test(r.text))
     const importance = Math.min(.65, Math.min(.5, input.importance) + (evidence ? .15 : 0))
     const record = this.memory.put({ id, kind: input.kind, title: input.title, text: input.content, created_at: this.memory.now(),
       source: { ...author.source, branch: author.branch }, status: input.kind === 'topic' ? 'active' : 'candidate', importance,
       data: { source_ids: sourceIds, ...(topicId ? { topic_id: topicId } : {}), ...(input.related_task ? { related_task: input.related_task } : {}),
-        ...(input.replaces ? { replaces: input.replaces } : {}), ...(input.job_id ? { job_id: input.job_id } : {}),
+        ...(input.replaces ? { replaces: input.replaces } : {}), ...(jobId ? { job_id:jobId,review_job_id:jobId } : {}),
+        ...(structured?{category:input.category,evidence_type:input.evidence_type??'inferred',entity_refs:input.entity_refs??[],
+          observed_at:input.observed_at??null,valid_from:input.valid_from??null,valid_to:input.valid_to??null}:{}),
         ...(input.kind === 'diary_draft' ? { day: input.diary_date ?? this.memory.today() } : {}),
         ...(input.kind === 'self_draft' ? { base_version: this.currentSelf()?.id ?? null } : {}), evidence_based: evidence, revisions: [] } })
     if (input.kind === 'topic') for (const old of versions) {

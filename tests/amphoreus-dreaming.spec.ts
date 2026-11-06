@@ -71,3 +71,52 @@ it('explicitly resumes saved candidates without rerunning a continuation or reop
   memory.update(job.id,{status:'reviewed'});await dreaming.reviewReady(job.id,'again');expect(ingest).toHaveBeenCalledOnce()
  }finally{host.close();rmSync(dir,{recursive:true,force:true})}
 })
+
+it('commits contiguous frozen batches including zero candidates, resumes from durable progress and never skips unread history',async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'dream-batches-')),host=new Store(join(dir,'db.sqlite'))
+ try{
+  const store=new AmphoreusStore(host),memory=new MemoryStore(host,'role',MemorySettings.parse({dreaming:{consolidation:true}}))
+  const runtime={store,startReview:vi.fn(),controls:{enabled:true},gateway:{ingest:vi.fn(async()=>{})},onChange(){}} as unknown as AmphoreusRuntime
+  const dreaming=new Dreaming(memory,runtime),main={branch:'main' as const,source:{run_id:'review-run'},call_id:'commit'}
+  for(let i=0;i<10;i++)memory.put({kind:'input',title:'ordinary',text:`small talk ${i}`,created_at:memory.now(),source:{}})
+  const job=(await dreaming.schedule(true,'batch-test'))!,first=dreaming.read(job.id,3) as any
+  expect(first.records).toHaveLength(3);expect(first.complete).toBe(false)
+  expect(()=>dreaming.finish(job.id,'premature',main,true)).toThrow('unprocessed')
+  const future=dreaming.read(job.id,3,0,first.next_position) as any
+  expect(()=>dreaming.commit(job.id,future.batch_id,[],'no useful facts',main)).toThrow('next unprocessed')
+  dreaming.commit(job.id,first.batch_id,[],'ordinary small talk; zero candidates',main)
+  dreaming.commit(job.id,first.batch_id,[],'retry',main)
+  const restored=new Dreaming(memory,runtime),next=restored.read(job.id,3) as any
+  expect(next.records[0].position).toBeGreaterThan(first.next_position)
+  for(let n=0;n<10;n++){
+   const batch=restored.read(job.id,3) as any
+   restored.commit(job.id,batch.batch_id,[],'zero candidates',main)
+   if(batch.complete)break
+  }
+  expect(memory.find({kind:'candidate'})).toHaveLength(0)
+  expect(restored.finish(job.id,'No long-term material',main,true).status).toBe('skipped')
+  expect(store.record('dreaming-cursor','role')).toBe(job.data.to)
+ }finally{host.close();rmSync(dir,{recursive:true,force:true})}
+})
+
+it('does not advance a completed but unread review and isolates historical backfill from the daily cursor',async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'dream-incomplete-')),host=new Store(join(dir,'db.sqlite'))
+ try{
+  const store=new AmphoreusStore(host),memory=new MemoryStore(host,'role'),controlTask=vi.fn()
+  for(let n=0;n<6;n++)memory.put({kind:'input',title:'history',text:`message ${n}`,created_at:memory.now(),source:{}})
+  store.setRecord('dreaming-cursor','role',1)
+  const runtime={store,controlTask,startReview:vi.fn(),controls:{enabled:true},gateway:{ingest:vi.fn(async()=>{})},onChange(){}} as unknown as AmphoreusRuntime
+  const dreaming=new Dreaming(memory,runtime),job=(await dreaming.backfill(2,6,'backfill'))!
+  const originalTasks=store.tasks.bind(store)
+  store.tasks=(()=>[{task_id:'branch',kind:'continuation',state:'completed',origin:{event_id:job.data.event_id}}]) as never
+  dreaming.reconcile();expect(memory.get(job.id)?.status).toBe('incomplete')
+  expect(store.record('dreaming-cursor','role')).toBe(1)
+  dreaming.resume(job.id);expect(controlTask).toHaveBeenCalledWith('branch','resume')
+  const batch=dreaming.read(job.id) as any,main={branch:'main' as const,source:{run_id:'review'},call_id:'commit'}
+  expect(batch.records).toHaveLength(4)
+  dreaming.commit(job.id,batch.batch_id,[],'No facts',main)
+  dreaming.finish(job.id,'Reviewed older history',main,true)
+  expect(store.record('dreaming-cursor','role')).toBe(1)
+  store.tasks=originalTasks
+ }finally{host.close();rmSync(dir,{recursive:true,force:true})}
+})

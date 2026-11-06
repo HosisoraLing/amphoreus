@@ -6,7 +6,7 @@ export const MemorySettings = z.object({
   reasoning: z.object({ allowedProviders: z.array(z.string()).default([]), retentionDays: z.number().int().min(1).max(365).default(7),
     importantRetentionDays: z.number().int().min(1).max(3650).default(30), retainImportantRaw: z.boolean().default(false) }).prefault({}),
   timeZone: z.string().refine(value => { try { new Intl.DateTimeFormat('en', { timeZone: value }); return true } catch { return false } }, 'Invalid IANA time zone').default('Asia/Shanghai'),
-  dreaming: z.object({ enabled: z.boolean().default(true), at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('01:00') }).prefault({}),
+  dreaming: z.object({ consolidation:z.boolean().default(false), enabled: z.boolean().default(true), at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('01:00') }).prefault({}),
   socialContext: z.object({enabled:z.boolean().default(true),hybridBudgetTokens:z.number().int().min(200).max(8000).default(1000)}).prefault({}),
 }).prefault({})
 export type MemorySettings = z.infer<typeof MemorySettings>
@@ -132,6 +132,11 @@ export class MemoryStore {
     this.expire()
     return this.host.db.prepare("SELECT * FROM amphoreus_memory WHERE agent_id=? AND rowid>? AND rowid<=? AND kind IN ('input','speak','assistant','reasoning','report','tool') ORDER BY rowid LIMIT ? OFFSET ?")
       .all(this.agentId, from, to, Math.min(20, limit), offset).map(row => this.decode(row)).map(({ text, ...record }) => ({ ...record, excerpt: text.slice(0, 200), total_chars: text.length }))
+  }
+  rangeAfter(from:number,to:number,limit=8){
+    this.expire()
+    return this.host.db.prepare("SELECT rowid AS position,* FROM amphoreus_memory WHERE agent_id=? AND rowid>? AND rowid<=? AND kind IN ('input','speak','assistant','reasoning','report','tool') ORDER BY rowid LIMIT ?")
+      .all(this.agentId,from,to,Math.min(21,Math.max(1,limit))).map(row=>({...this.decode(row),position:Number(row.position)}))
   }
   jobRecords(id: string): MemoryRecord[] {
     return this.host.db.prepare("SELECT * FROM amphoreus_memory WHERE agent_id=? AND data ->> '$.job_id'=? ORDER BY rowid").all(this.agentId, id).map(row => this.decode(row))

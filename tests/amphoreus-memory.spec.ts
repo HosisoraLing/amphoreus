@@ -140,3 +140,23 @@ it('does not copy inherited Fork history or invent unavailable/disallowed reason
   expect(memory.get(memoryId('child', 10, 'reasoning'))?.status).toBe('unavailable')
   expect(memory.get(memoryId('child', 11, 'reasoning'))).toMatchObject({ text: '', status: 'disabled' })
 })
+
+it('validates structured evidence and deduplicates reprocessed claims without reviving rejected candidates',()=>{
+ const {memory}=setup(),recall=new Recollection(memory)
+ const input=memory.put({kind:'input',title:'preference',text:'I now prefer tea.',created_at:memory.now(),source:{actor_id:'person'}})
+ const thought=memory.put({kind:'assistant',title:'idea',text:'Maybe a lantern shaped like waves.',created_at:memory.now(),source:{branch:'main'}})
+ const job=memory.put({kind:'consolidation',title:'review',text:'',created_at:memory.now(),source:{},data:{from:0,to:memory.position()}})
+ const author={branch:'continuation' as const,source:{session_id:'fork'},call_id:'first'}
+ const raw={kind:'candidate',title:'Tea',content:'The user prefers tea.',category:'preference',evidence_type:'explicit',job_id:job.id,source_ids:[input.id]}
+ const candidate=recall.memorize(Memorize.parse(raw),author)
+ expect(candidate.data).toMatchObject({category:'preference',evidence_type:'explicit',valid_from:null,valid_to:null,review_job_id:job.id})
+ expect(()=>recall.memorize(Memorize.parse({...raw,source_ids:[]}),{...author,call_id:'no-source'})).toThrow('real source_ids')
+ expect(()=>recall.memorize(Memorize.parse({...raw,source_ids:[thought.id]}),{...author,call_id:'not-explicit'})).toThrow('original input')
+ const main={branch:'main' as const,source:{run_id:'review'},call_id:'reject'}
+ recall.decide(candidate.id,'archive','not needed',main)
+ const replay=recall.memorize(Memorize.parse(raw),{...author,call_id:'different-on-retry'})
+ expect(replay.id).toBe(candidate.id);expect(replay.status).toBe('archived')
+ const idea=recall.memorize(Memorize.parse({...raw,kind:'insight',category:'creative_insight',evidence_type:'inferred',source_ids:[thought.id],content:'Explore a wave lantern.'}),{...author,call_id:'idea'})
+ expect(idea.status).toBe('candidate');expect(idea.data.evidence_type).toBe('inferred')
+ expect(memory.find({kind:'self'})).toHaveLength(0)
+})

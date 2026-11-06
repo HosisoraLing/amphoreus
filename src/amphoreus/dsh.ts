@@ -46,7 +46,7 @@ const toolParameters = (schema: z.ZodType) => JSON.parse(JSON.stringify(z.toJSON
 export const Blocks = z.array(z.object({ type: z.string().min(1).max(80) }).passthrough()).min(1).max(100)
 export const Report = z.object({ type: z.enum(['progress', 'thought', 'discovery', 'question', 'completed', 'failed']), summary: z.string().min(1).max(16000),
   details: Blocks.optional(), progress: z.number().min(0).max(100).optional(), priority: z.number().int().min(-10).max(10).optional() }).strict()
-const MEMORY_TOOLS = ['memory_find', 'memory_read', 'memorize', 'list_topics', 'read_topic', 'memory_refresh', 'memory_review_read', 'read_media', 'read_forward',...PEOPLE_READ_TOOLS]
+const MEMORY_TOOLS = ['memory_find', 'memory_read', 'memorize', 'list_topics', 'read_topic', 'memory_refresh', 'memory_review_read', 'memory_review_commit', 'read_media', 'read_forward',...PEOPLE_READ_TOOLS]
 const MAIN_TOOLS = new Set(['send_meme','learn_meme','meme_list','meme_update','speak','list_channels','qq_message_control','user_blacklist','topic_agent','topic_organizer', 'delegate_task', 'task_message', 'send_message', 'task_control', 'collaborate', 'group_participation', 'memory_decide', 'memory_confirm', 'dreaming_finish', ...MEMORY_TOOLS,...Object.keys(PeopleCommands)])
 const CONTINUATION_TOOLS = new Set([...MEMORY_TOOLS, 'report_to_main'])
 const TOPIC_TOOLS=new Set(['memory_find','memory_read','read_topic','memorize','read_media','read_forward','report_to_main',...PEOPLE_READ_TOOLS])
@@ -258,7 +258,11 @@ export class DshAgentDriver implements AgentDriver {
         return { items, next_offset: items.length === args.limit ? args.offset + items.length : null }
       }),
       this.register(agent, 'read_topic', '默认只召回话题摘要，不返回对话或想法原文。include_original=true才分页取有序原文，明确标注message/speech/thought及来源。offset/limit翻条目，text_offset/size翻长原文；图片仅引用。',TopicRecall,args=>recollection.topic(args.id,args.offset,args.include_original,args.limit,args.text_offset,args.size)),
-      this.register(agent, 'memory_review_read', '分页阅读一次Dreaming尚未整理的真实增量记录。', z.object({ job_id: z.string(), limit: z.number().int().min(1).max(20).default(8), offset: z.number().int().min(0).default(0) }).strict(), args => this.archive!.dreaming?.read(args.job_id, args.limit, args.offset) ?? { error: 'Dreaming unavailable' }),
+      this.register(agent, 'memory_review_read', '分页读冻结的回顾窗口；批次协议默认从已提交位置继续，after仅用于明确续页。读完每批用memory_review_commit提交，可零候选。', z.object({ job_id: z.string(), limit: z.number().int().min(1).max(20).default(8), offset: z.number().int().min(0).default(0),after:z.number().int().min(0).optional() }).strict(), args => this.archive!.dreaming?.read(args.job_id, args.limit, args.offset,args.after) ?? { error: 'Dreaming unavailable' }),
+      ...(['main','continuation'].includes(branch)?[this.register(agent,'memory_review_commit','提交已处理回顾批次，candidate_ids可为空但须说明原因。只推进连续已处理窗口，不确认事实、日记或Self。',z.object({job_id:z.string(),batch_id:z.string(),candidate_ids:z.array(z.string()).max(100).default([]),note:z.string().min(1).max(1000)}).strict(),(args,id)=>{
+        if(!this.archive!.dreaming)throw Error('Dreaming unavailable')
+        return this.archive!.dreaming.commit(args.job_id,args.batch_id,args.candidate_ids,args.note,author(id))
+      })]:[]),
       this.register(agent, 'memory_refresh', '主动刷新记忆视图和当前Self；Fork后的新内容不伪装成已继承历史。', z.object({}).strict(), () => {
         const self = recollection.currentSelf(), binding = this.archive!.binding(agent.id)
         if (binding) this.archive!.bind({ ...binding, self_version: self?.id ?? null, memory_view_at: memory.now() })
