@@ -98,6 +98,24 @@ it('reserves formal Self and diary confirmation for Main, preserves versions and
   const diary = recollection.memorize(Memorize.parse({ kind: 'diary_draft', title: '昨天', content: '昨天的日记', diary_date: '2026-11-02' }), { ...branch, call_id: 'diary' })
   expect(() => recollection.confirm(diary.id, undefined, '确认过去', main)).toThrow('historical diaries')
 })
+it('confirms a legacy Self draft with no base version only while no formal Self exists', () => {
+  const { memory } = setup(), recollection = new Recollection(memory)
+  const main = { branch: 'main' as const, source: { session_id: 'main', run_id: 'review' }, call_id: 'confirm-legacy' }
+  const draft = (title: string, data: Record<string, unknown> = {}) => memory.put({
+    kind: 'self_draft', title, text: 'Synthetic legacy Self.', created_at: memory.now(), source: { branch: 'continuation' }, data,
+  })
+  const first = draft('first'), stale = draft('stale'), explicitNull = draft('null', { base_version: null })
+  const formal = recollection.confirm(first.id, undefined, 'reviewed first Self', main)
+  expect(formal).toMatchObject({ kind: 'self', status: 'confirmed', data: { version: 1, previous_id: null } })
+  for (const pending of [stale, explicitNull]) {
+    expect(() => recollection.confirm(pending.id, undefined, 'stale draft', main)).toThrow('Self changed')
+    expect(() => recollection.confirm(pending.id, undefined, 'explicit empty version', main, null)).toThrow('Self changed')
+    expect(memory.get(pending.id)?.data.formal_id).toBeUndefined()
+  }
+  const reviewed = recollection.confirm(stale.id, undefined, 'reviewed against current Self', main, formal.id)
+  expect(reviewed.data).toMatchObject({ version: 2, previous_id: formal.id })
+  expect(memory.get(formal.id)?.status).toBe('superseded')
+})
 it('retains exact global text, scopes roles, paginates reads and ranks lasting importance without losing history', () => {
   const { memory, host } = setup()
   const old = memory.put({ kind: 'input', title: '重要约定', text: '青竹731'.repeat(1000), created_at: '2020-01-01T00:00:00Z', source: { platform: 'qq', conversation_id: 'group:1' }, importance: 1 })
