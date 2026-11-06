@@ -111,10 +111,7 @@
               - id: role-compaction
                 name: '@hosisora_ling/dsh-amphoreus/role-compaction'
                 config:
-                  thresholdRatio: 0.95
-                  headroomTokens: 8192
                   maxTokens: 4096
-                  retainRatio: 0.8
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
               - id: tool-result-pruner

@@ -2,42 +2,49 @@ import {afterEach,expect,it,vi} from 'vitest'
 import {Context} from '@deepseek-ai/cordis'
 import {Session,SessionId} from '@deepseek-ai/dsh-session'
 import type {Agent} from '@deepseek-ai/dsh-agent'
+import {BasicCompactionEngine} from '@deepseek-ai/dsh-compaction-basic'
 import RoleCompaction from '../src/amphoreus/role-compaction.ts'
 import {ROLE_COMPACT_INSTRUCTION} from '../src/amphoreus/role-context.ts'
 
 const roots:Context[]=[]
 afterEach(async()=>{await Promise.all(roots.splice(0).map(root=>root.fiber.dispose()))})
 it.each([
- {window:1000000,reserve:8192,threshold:950000},
- {window:128000,reserve:8192,threshold:111616},
- {window:1000000,reserve:200000,threshold:791808},
-])('uses native window pressure and keeps recent history for $window/$reserve',async policy=>{
+ {window:1000000,reserve:8192},
+ {window:128000,reserve:8192},
+ {window:1000000,reserve:200000},
+])('inherits native pressure and retention defaults for $window/$reserve',async policy=>{
  const root=new Context();roots.push(root)
  const session=Session.create(SessionId('window-pressure'))
  session.append('request/header',{header:{config:{provider:'test',model:'model',maxTokens:policy.reserve}},reason:'initial'})
  for(let i=0;i<20;i++)session.append('user/message',{role:'user',id:`history-${i}`,source:{kind:'human'},content:[{type:'text',text:`message ${i}`}]} as never,{surfaceOp:'append'})
- let pressure=policy.threshold-1
+ let pressure=0
  root.provide('llm',{resolveModelInfo:async()=>({context:{contextWindow:policy.window},defaultMaxTokens:policy.reserve})})
  root.provide('sessions',{flush:vi.fn()})
  root.provide('tokenMeter',{measure:()=>({totalTokens:pressure,nodes:session.surface.nodes.map(seq=>({seq,tokens:pressure/20}))})})
  const isolated=root.isolate('compaction')
- await isolated.plugin(RoleCompaction,{thresholdRatio:.95,headroomTokens:8192,maxTokens:4096,retainRatio:.8})
+ await isolated.plugin(RoleCompaction,{maxTokens:4096})
  const engine=isolated.get('compaction') as RoleCompaction
  expect(engine).toBeDefined();expect(root.get('compaction')).toBeUndefined()
+ const baselineScope=root.isolate('compaction')
+ await baselineScope.plugin(BasicCompactionEngine,{maxTokens:4096})
+ const baseline=baselineScope.get('compaction') as BasicCompactionEngine
+ expect(engine.config).toEqual(baseline.config)
+ const threshold=Math.floor(Math.min(policy.window*baseline.config.thresholdRatio,policy.window-policy.reserve-baseline.config.headroomTokens))
+ pressure=threshold-1
  let kept=0
  const compact=vi.spyOn(engine,'compactRegion').mockImplementation(async(_start,end)=>{
   const nodes=session.surface.nodes,keepAt=nodes.indexOf(end)+1
   kept=(nodes.length-keepAt)*pressure/20
-  pressure=Math.floor((policy.window-policy.reserve-8192)*.85)
+  pressure=Math.floor(threshold*.5)
   return {} as never
  })
  const agent={session,options:{}} as Agent,signal=new AbortController().signal
  expect(await engine.compactIfNeeded(agent,'pressure',signal)).toBeNull()
  expect(compact).not.toHaveBeenCalled()
- pressure=policy.threshold
+ pressure=threshold
  await engine.compactIfNeeded(agent,'pressure',signal)
  expect(compact).toHaveBeenCalledOnce()
- expect(kept).toBeGreaterThanOrEqual(Math.floor((policy.window-policy.reserve)*.8))
+ expect(kept).toBeGreaterThanOrEqual(Math.floor((policy.window-policy.reserve)*baseline.config.retainRatio!))
 })
 // Exercise the summary hook without mounting an engine or mutating real history.
 const summarize=RoleCompaction.prototype as unknown as {summarize(input:unknown,agent:unknown,signal?:AbortSignal):Promise<any>}
