@@ -58,13 +58,34 @@ function setup(withTask = false, many = false, embedded = false, admin = false) 
     } else throw new Error(`Unexpected endpoint ${path}`)
     return { ok: true, json: async () => value }
   }
-  w.eval(readFileSync(new URL('../src/amphoreus/console.js', import.meta.url), 'utf8') + '\nwindow.__chatIdle = () => !loading && !queued && !sending; window.__chatCleanup = () => clearTimeout(refreshTimer); window.__chatRows=(rows,items)=>{messageRows=rows;chatActivityItems=items;renderChat()};')
+  w.eval(readFileSync(new URL('../src/amphoreus/console.js', import.meta.url), 'utf8') + '\nwindow.__chatIdle = () => !loading && !queued && !sending; window.__chatCleanup = () => clearTimeout(refreshTimer); window.__chatRows=(rows,items)=>{messageRows=rows;chatActivityItems=items;renderChat()};window.__chatRefresh=refreshChat;window.__chatMore=loadOlderMessages;window.__chatCount=()=>messageRows.length;')
   const el = (id: string) => document.getElementById(id) as any
   const input = (text: string) => { el('chat-input').value = text; el('chat-input').dispatchEvent(new w.Event('input', { bubbles: true })) }
   const filter = (platform: string, conversation = '') => { el('source').value = platform; el('source').dispatchEvent(new w.Event('change')); el('conversation-filter').value = conversation; el('conversation-filter').dispatchEvent(new w.Event('change')) }
   return { dom, w, document, el, input, filter, posts, messages, listeners, requests, streams,
     fail: () => { failNext = true }, hold: () => { held = true }, release: () => { held = false; heldResolve?.() } }
 }
+
+it('bounds an unattended live transcript while allowing explicit older-history paging',async()=>{
+  const ui=setup();await eventually(()=>ui.el('message-list').textContent.includes('第一段'))
+  const w=ui.w as any,first=ui.messages.get('web:alice:first')![0]
+  for(let batch=0;batch<12;batch++){
+    const rows=Array.from({length:40},(_,n)=>({...first,event:{...first.event,event_id:`live-${batch}-${n}`,content:[{type:'text',text:`新消息 ${batch}-${n}`}]}}))
+    ui.messages.set('web:alice:first',[...rows,...ui.messages.get('web:alice:first')!])
+    await w.__chatRefresh()
+  }
+  expect(w.__chatCount()).toBe(200)
+  expect(ui.el('message-list').textContent).toContain('新消息 11-0')
+  expect(ui.el('older-messages').hidden).toBe(false)
+  await w.__chatMore()
+  expect(w.__chatCount()).toBe(250)
+  expect(ui.el('message-list').textContent).toContain('新消息 6-0')
+  const next={...first,event:{...first.event,event_id:'live-next',content:[{type:'text',text:'继续收到的新消息'}]}}
+  ui.messages.get('web:alice:first')!.unshift(next)
+  await w.__chatRefresh()
+  expect(w.__chatCount()).toBe(250)
+  expect(ui.el('message-list').textContent).toContain('继续收到的新消息')
+})
 
 it('filters clean task rows and opens a read-only conversation with details and lazy model settings',async()=>{
  const ui=setup(true,false,false,true);await eventually(()=>ui.el('message-list').textContent.includes('第一段'))

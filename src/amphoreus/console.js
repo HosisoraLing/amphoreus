@@ -214,6 +214,7 @@ globalThis.AmphoreusUI = { markdown, blocks, messageCard }
 let roleName = '角色', principal, view = 'dashboard', offsets = { messages: 0, reports: 0, runs: 0 }, stream, refreshTimer, loading = false, queued = false
 const randomId = () => crypto.randomUUID?.() || Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
 let messageRows = [], messageFilter, hasOlder = false, olderLoading = false, draftKey, sending = false
+let messageCapacity = 200
 let chatActivityItems = [], activityCursor, activityHasMore = false, activityLoading = false, activityScope = ''
 const chatExpanded = new Set()
 const chatFilter = () => new URLSearchParams({ platform: $('source').value, conversation: $('conversation-filter').value }).toString()
@@ -223,7 +224,7 @@ function updateComposer() {
   $('chat-send').disabled = sending || !$('chat-input').value.trim()
   $('chat-target').textContent = sending ? '正在发送…' : 'Enter 发送 · Shift+Enter 换行'
 }
-function changeChatFilter() { messageRows = []; messageFilter = undefined; hasOlder = false; chatActivityItems = []; activityScope = ''; refresh() }
+function changeChatFilter() { messageRows = []; messageCapacity = 200; messageFilter = undefined; hasOlder = false; chatActivityItems = []; chatExpanded.clear(); activityScope = ''; refresh() }
 function renderChat(older = false) {
   const scroller = $('chat-scroll'), oldHeight = scroller.scrollHeight, oldTop = scroller.scrollTop
   const changed = messageFilter !== chatFilter()
@@ -231,6 +232,8 @@ function renderChat(older = false) {
   messageFilter = chatFilter()
   const list = $('message-list')
   for (const detail of list.querySelectorAll('details[data-activity-id]')) { if (detail.open) chatExpanded.add(detail.dataset.activityId); else chatExpanded.delete(detail.dataset.activityId) }
+  const activityIds = new Set(chatActivityItems.map(item => item.id))
+  for (const id of chatExpanded) if (!activityIds.has(id)) chatExpanded.delete(id)
   list.replaceChildren()
   if (!messageRows.length) {
     const welcome = node('div', undefined, 'chat-empty')
@@ -317,8 +320,12 @@ async function refreshChat() {
   for (const task of tasks) { const link = taskLink(task.task_id, `◇ ${labels[task.state] || task.state} · ${task.description.slice(0, 35)}`); link.title = task.description; taskList.append(link) }
   const seen = new Set(rows.map(row => row.event.event_id))
   if (messageFilter !== query || messageRows.length && !messageRows.some(row => seen.has(row.event.event_id))) {
-    messageRows = rows; hasOlder = rows.length === 50
-  } else messageRows = [...rows, ...messageRows.filter(row => !seen.has(row.event.event_id))]
+    messageRows = rows; messageCapacity = 200; hasOlder = rows.length === 50
+  } else {
+    const merged = [...rows, ...messageRows.filter(row => !seen.has(row.event.event_id))]
+    if (merged.length > messageCapacity) hasOlder = true
+    messageRows = merged.slice(0, messageCapacity)
+  }
   await Promise.all([refreshChatActivity(),refreshNativeFooter()])
   if (view === 'messages' && chatFilter() === query) renderChat()
 }
@@ -331,6 +338,7 @@ async function loadOlderMessages() {
     if (chatFilter() !== query) return
     const seen = new Set(messageRows.map(row => row.event.event_id))
     messageRows.push(...rows.filter(row => !seen.has(row.event.event_id)))
+    messageCapacity = Math.max(messageCapacity, messageRows.length)
     hasOlder = rows.length === 50; olderLoading = false; await refreshChatActivity(); if (chatFilter() === query) renderChat(true)
   } catch (error) { showError(error) }
   finally { olderLoading = false; $('older-messages').disabled = false; $('older-messages').textContent = '加载更早的消息' }
