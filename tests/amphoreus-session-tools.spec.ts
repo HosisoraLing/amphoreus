@@ -18,6 +18,35 @@ function register(ctx: Context, name: string) {
   return { execute, dispose }
 }
 
+it('projects Zod-generated memory and media parameters through the native lossless JSON boundary', async () => {
+  const root = new Context(); contexts.push(root)
+  await root.plugin(SystemPrompt); await root.plugin(ToolRuntime)
+  const ctx = await new Promise<Context>(resolve => { root.inject(['tools'], child => { resolve(child) }) })
+  const session = Session.create(SessionId('schema-regression')), agent = { id: session.id, session } as Agent
+  Object.assign(agent, { ctx: createScope(ctx, agent).ctx })
+  const archive = { memory: {}, binding: () => ({ event_id: 'current-source' }) }
+  const driver = new DshAgentDriver(ctx, () => ({ agent_id: 'role', name: '角色', persona: '人设' }), '/unused', { main: null, worker: null }, 8, archive as never)
+  const content = [{ type: 'text', text: '附件内容' }]
+  const read = vi.fn(async () => content), forward = vi.fn(async () => content)
+  driver.media = { read, forward } as never
+  const disposers = (driver as any).memoryTools(agent, 'main') as (() => void)[]
+  try {
+    const schemas = agent.ctx.tools.schemas(agent)
+    expect(schemas.map(tool => tool.name)).toEqual(expect.arrayContaining(['read_media', 'read_forward', 'memory_find', 'memory_confirm']))
+    expect(schemas.find(tool => tool.name === 'read_media')!.parameters).toMatchObject({
+      additionalProperties: false, properties: { index: { default: 0 }, frames: { default: 5, maximum: 16 } },
+    })
+    const signal = new AbortController().signal
+    const call = (name: string, args = {}) => ctx.tools.execute({ agent, name, arguments: args, callId: ToolCallId(`schema-${name}`), signal })
+    expect((await call('read_media')).isError).toBe(false)
+    expect(read).toHaveBeenCalledWith('current-source', 0, signal, 5)
+    expect((await call('read_forward')).isError).toBe(false)
+    expect(forward).toHaveBeenCalledWith('current-source', 0, 0, 5, signal)
+    expect((await call('read_forward', { limit: 11 })).isError).toBe(true)
+    expect(forward).toHaveBeenCalledOnce()
+  } finally { disposers.reverse().forEach(dispose => dispose()) }
+})
+
 it.each([
   ['main', false, false, false], ['worker', true, false, false],
   ['continuation', true, true, false], ['topic', true, false, true],
