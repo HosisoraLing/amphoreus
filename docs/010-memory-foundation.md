@@ -43,9 +43,9 @@ Main 可用 `collaborate` 保存长期目标，工作时使用独立的有界步
 
 部署复用现有0.23.3包和同版本CLI，仅读挂载，不下载重复副本；需要zstd解压原生Session日志。环境只启用 `DEJA_INCLUDE_SUBAGENTS=1` 和持久缓存，不设置排除分支或限定来源的查询参数。包挂载于业务模块的node_modules下，以便解析Harness工具依赖；profile仅链接依赖，不启用全局bundle。
 
-Deja 0.23.3 的工具和 hook 已随包提供在 `vendor/dsh-deja`，保留 MIT 声明；唯一兼容修改让自动召回同时识别委派任务来源和旧来源。仅工具助手预设加载 `@hosisora_ling/dsh-amphoreus/worker-deja`，无需全局安装或启用 Deja bundle；Main、潜意识和话题分支仍不加载其工具及自动召回，索引检索范围不受此作用域限制。
+Deja 0.23.3 的工具和 hook 已随包提供在 `vendor/dsh-deja`，保留 MIT 声明；召回入口同时识别用户输入与翁法罗斯委派任务。仅工具助手预设加载 `@hosisora_ling/dsh-amphoreus/worker-deja`，无需全局安装或启用 Deja bundle；Main、潜意识和话题分支仍不加载其工具及自动召回，索引检索范围不受此作用域限制。
 
-真实模型联调发现，addition-only接口在Fork收窄到全新工具集合时会将所有工具延迟声明。潜意识在原生Turn内追加当前可用工具的 `request/header(reason=series)`，保留全部父历史，重设工具基线。作用域与JSON声明均显式取自该分支；不恢复Main的发言、执行或主观确认权限。
+真实模型联调发现，addition-only接口在Fork收窄到全新工具集合时会将所有工具延迟声明。潜意识在原生Turn内追加当前可用工具的 `request/header(reason=series)`，保留全部父历史，重设工具基线。作用域与JSON声明均取自该分支的原生工具注册表，包含用户加载的附加工具；不恢复Main专属的发言和主观确认权限。
 
 ## M5 时间、重要性与灵感
 

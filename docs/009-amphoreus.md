@@ -67,6 +67,12 @@ AMPHOREUS_CONFIG=/absolute/private/amphoreus.json dsh --profile amphoreus
 
 已中断或失败的推理不会自动重跑；发送失败先核查、尝试重发，仍失败可通过已配置 SMTP 告警。所有重试均应先核对已经完成的操作。若潜意识已保存候选而 Main 审阅失败，管理员可向 `POST /api/dreaming` 提供 `job_id` 与 `idempotency_key`，只恢复审阅，不重新整理整批记忆。
 
+## 为 Session 加载附加工具
+
+使用 DSH 原生插件配置或预设的 `plugins` 加载工具，翁法罗斯会保留其原生可见范围，不再用固定工具白名单屏蔽它们。仅注册到某个 Session 的工具不会因此开放给其他会话；运行期间加载和卸载的工具也遵循原生注册状态与权限策略。
+
+Main、worker、潜意识和话题分支均支持附加工具；默认预设保持各自职责，多步执行仍优先交给 worker。潜意识 Fork 的工具声明包含当前实际可用的附加工具。角色专属的发言、管理和正式 Diary/Self 确认权限仍按职责限制，Deja 工具和自动召回仍仅用于技术 worker。无需另设翁法罗斯工具名单。
+
 ## QQ 与多模态
 
 OneBot 只负责收发；解析、权限、去重、群聊参与和多模态处理均位于 Runtime。支持正向和反向 WebSocket，账号与令牌必须匹配。授权列表为空不接收；`*` 表示该范围全部，启用前应确认目标。
