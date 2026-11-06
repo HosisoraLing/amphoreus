@@ -1,0 +1,31 @@
+Amphoreus / 翁法罗斯
+Copyright (c) 2026 Amphoreus contributors
+
+The Amphoreus additions and modifications are licensed under GNU AGPL v3.0
+only (SPDX-License-Identifier: AGPL-3.0-only). See LICENSE.
+
+This project is derived from deepseek-ai/dsh-superagent-prototype:
+https://github.com/deepseek-ai/dsh-superagent-prototype
+Copyright (c) 2026 DeepSeek Harness Team
+The original MIT permission and copyright notice are preserved in
+LICENSES/MIT-upstream.txt. This project is not an official DeepSeek product.
+
+Vendored components keep their original licenses:
+- dsh-deja 0.23.3: Copyright (c) 2026 Vladislav Shulcz; MIT.
+  See vendor/dsh-deja/LICENSE and vendor/dsh-deja/README.md.
+- dsh-meme 0.1.71: Copyright (c) 2026 Selfloom contributors; MIT.
+  See vendor/dsh-meme/LICENSE and vendor/dsh-meme/README.md.
+
+Installed dependencies keep their own license and copyright notices.
+A human-readable inventory is in THIRD_PARTY_NOTICES.md; the application
+also exposes principal component notices on its About page.
+
+MiSans is loaded from Xiaomi's official CDN and is not redistributed here.
+NapCatQQ, QQ clients, FFmpeg and the deja executable are separate runtime
+components, not software relicensed by this repository. Their own licenses
+and applicable terms govern use and redistribution.
+
+Character profiles, personal memories, messages, works, media libraries,
+credentials and deployment state are not part of this source release.
+No rights to private character assets or third-party service accounts are
+granted by the program license.

@@ -1,0 +1,25 @@
+{
+  "role": { "agent_id": "my-role", "name": "角色名", "persona": "在这里填入角色的核心 Persona。" },
+  "workspace": "/workspace",
+  "models": {
+    "main": { "provider": "deepseek-account", "model": "deepseek-flash", "reasoningEffort": "high" },
+    "worker": { "provider": "deepseek-account", "model": "deepseek-flash", "reasoningEffort": "high" }
+  },
+  "limits": { "maxWorkers": 3, "mainSteps": 8, "mainTimeoutMs": 90000, "taskTimeoutMs": 3600000, "progressIntervalMs": 60000 },
+  "api": {
+    "host": "127.0.0.1", "port": 13103, "allowedHosts": ["127.0.0.1:2333", "localhost:2333"],
+    "tokens": [
+      { "token": "REPLACE_WITH_RANDOM_32_BYTE_ADMIN_TOKEN", "user": "owner", "role": "admin" },
+      { "token": "REPLACE_WITH_DIFFERENT_RANDOM_CHAT_TOKEN", "user": "guest", "role": "chat" }
+    ]
+  },
+  "memory": {
+    "reasoning": { "allowedProviders": [], "retentionDays": 7, "importantRetentionDays": 30, "retainImportantRaw": false },
+    "timeZone": "Asia/Shanghai", "dreaming": { "enabled": true, "at": "01:00" }
+  },
+  "qq": {
+    "enabled": false, "accountId": "", "direction": "forward", "wsUrl": "ws://napcat:3001",
+    "token": "REPLACE_WITH_ONEBOT_ACCESS_TOKEN", "allowedUsers": [], "allowedGroups": [], "groupTrigger": "mention", "keywords": [], "observeOnly": false,
+    "requestTimeoutMs": 10000, "reconnectMs": 1000, "heartbeatMs": 30000
+  }
+}

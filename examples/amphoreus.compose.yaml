@@ -1,0 +1,27 @@
+# Use with the existing amphoreus Compose; no change to an existing NapCat service.
+# docker compose -f compose.yaml -f src/examples/amphoreus.compose.yaml up -d amphoreus
+services:
+  amphoreus:
+    environment:
+      DEJA_BIN: /usr/local/bin/deja
+      DEJA_INDEX_DIR: /root/.dsh/deja-index
+      DEJA_INCLUDE_SUBAGENTS: "1"
+      AMPHOREUS_CONFIG: /root/.dsh/amphoreus/config.json
+    # Keep the existing native Harness listener/port mapping; the manager is /amphoreus/.
+    volumes:
+      - ./workspaces:/workspace
+      - ${DEJA_BINARY:?set installed Linux deja binary}:/usr/local/bin/deja:ro
+      - /usr/bin/zstd:/usr/local/bin/zstd:ro
+  # Optional: serve the migrated bookshelf without starting the old fish-tank bot.
+  legacy-site:
+    image: ${AMPHOREUS_IMAGE:?set the existing amphoreus image}
+    init: true
+    restart: unless-stopped
+    entrypoint: ["node"]
+    command: ["/site/server.mjs"]
+    environment:
+      PORT: "13093"
+    ports:
+      - "13093:13093"
+    volumes:
+      - ./workspaces/legacy-fishtank/project/site:/site:ro
