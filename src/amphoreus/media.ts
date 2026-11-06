@@ -145,12 +145,13 @@ export class MediaInput {
       {event_id:record.source.event_id??`legacy-memory:${record.id}`,memory_id:record.id},signal,Math.min(frames,this.attachments.imageLimits.maxImagesPerMessage),bytes,frames)
   }
   /** Quiet group messages are still messages. Admit their original ordered blocks on the next wake. */
-  async inbox(event: GatewayEvent, signal: AbortSignal): Promise<ModelBlock[]> {
+  async inbox(event: GatewayEvent, signal: AbortSignal, includeUnread=true): Promise<ModelBlock[]> {
     let ids = this.store.record<string[]>('main-inbox-plan', event.event_id)
+    if(!includeUnread&&event.source_kind==='napcat')ids=undefined
     if (!ids) {
       const refs = ['qq-observation','qq-debounce'].includes(event.source_kind) && Array.isArray(event.metadata.source_event_ids)
         ? event.metadata.source_event_ids.filter((id):id is string => typeof id === 'string') : undefined
-      const unread = event.source_kind === 'napcat' && event.metadata.message_type === 'group'
+      const unread = includeUnread && event.source_kind === 'napcat' && event.metadata.message_type === 'group'
         ? this.store.events({ agentId: event.agent_id, sourceKind: 'napcat', platform: event.platform,
           accountId: event.account_id, conversationId: event.conversation_id, limit: 200 }).reverse()
           .map(row => row.event).filter(past => past.received_at <= event.received_at && past.event_id !== event.event_id

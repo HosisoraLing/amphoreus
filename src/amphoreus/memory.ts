@@ -7,6 +7,7 @@ export const MemorySettings = z.object({
     importantRetentionDays: z.number().int().min(1).max(3650).default(30), retainImportantRaw: z.boolean().default(false) }).prefault({}),
   timeZone: z.string().refine(value => { try { new Intl.DateTimeFormat('en', { timeZone: value }); return true } catch { return false } }, 'Invalid IANA time zone').default('Asia/Shanghai'),
   dreaming: z.object({ enabled: z.boolean().default(true), at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('01:00') }).prefault({}),
+  socialContext: z.object({enabled:z.boolean().default(true),hybridBudgetTokens:z.number().int().min(200).max(8000).default(1000)}).prefault({}),
 }).prefault({})
 export type MemorySettings = z.infer<typeof MemorySettings>
 export type MemoryBranch = 'main' | 'worker' | 'continuation' | 'topic'

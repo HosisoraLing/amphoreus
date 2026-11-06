@@ -22,7 +22,7 @@ import { isMemoryReview, type SubagentTask } from './model.ts'
 import { mainInput } from './main-input.ts'
 import type { MemoryArchive } from './archive.ts'
 import { memoryId } from './memory.ts'
-import { recentChannelContext } from './role-context.ts'
+import { SocialContext } from './role-context.ts'
 import { TopicRequest,resolveTopic,TOPIC_PROMPT,assertTopicWrite } from './topics.ts'
 import { TopicRecall } from './topic-threads.ts'
 import { OrganizerControl,type TopicOrganizer } from './topic-organizer.ts'
@@ -73,11 +73,16 @@ export class DshAgentDriver implements AgentDriver {
   private readonly delivery: AgentDelivery
   private readonly agents = new Map<string, Agent>()
   private vitalityLoaded=false
+  private readonly social?:SocialContext
   private mainActive?: { agent: Agent; context: MainContext; signal: AbortSignal; closing: boolean;
     expected: Map<string, { event: MainContext['event']; origin: MainContext['origin'] }>; deliveries: Set<Promise<void>> }
   constructor(private readonly ctx: Context, private readonly role: () => Role, private readonly workspace: string,
     private readonly models: { main: RoleModel | null; worker: RoleModel | null }, private readonly mainSteps: number, private readonly archive?: MemoryArchive, private readonly collaborationSteps = 60, private readonly reviewSteps = 16) {
     this.delivery = new AgentDelivery(ctx)
+    if(archive)this.social=new SocialContext(archive.store,archive.memory,text=>{
+      const meter=ctx.get('tokenMeter') as {estimateMessage?(message:unknown):number}|undefined
+      return meter?.estimateMessage?.({role:'system',content:[{type:'text',text}]})??Buffer.byteLength(text,'utf8')
+    })
   }
   private async ensure(id: string, worker: boolean,topic=false): Promise<Agent> {
     let result = await this.ctx.sessionController.resolveAgent(id as SessionId)
@@ -113,7 +118,7 @@ export class DshAgentDriver implements AgentDriver {
   }
   private async modelInput(event: MainContext['event'], origin: MainContext['origin'], signal: AbortSignal): Promise<ModelBlock[]> {
     if (!this.media || event.source_kind === 'internal') return [{ type: 'text', text: mainInput(event, origin) }]
-    return this.media.inbox(event, signal)
+    return this.media.inbox(event, signal, this.presence?.settings(event.conversation_id).mode==='hybrid')
   }
   /** Native Session/preset tools remain extensible; only Amphoreus role capabilities and Deja keep their boundaries. */
   private scopeTools(agent: Agent, worker: boolean, continuation: boolean, topic: boolean, signal: AbortSignal): (() => void)[] {
@@ -304,17 +309,23 @@ export class DshAgentDriver implements AgentDriver {
     // The preset's native pre-step compaction owns pressure policy inside its
     // isolated scope. Preserve full history until the model window is nearly full.
     // A scoped system section is rewritten on each wake, never appended as repeated user-history snapshots.
-    const disposeRecent=this.archive?agent.ctx.systemPrompt.section({name:'amphoreus-recent-channels',order:99998,interpolate:false,
-      text:()=>[recentChannelContext(this.archive!.store,context.event,event=>this.canAdmit(event)&&(event.platform!=='qq'||this.qqControl?.enabled(event.conversation_id)!==false)&&this.blocklist?.allowed(event)!==false),this.people?.context(context.origin)].filter(Boolean).join('\n')}):()=>{}
+    const input=await this.modelInput(context.event,context.origin,signal)
+    this.prepareSocial(context.event)
+    let renderedSocial:MainContext['event']|undefined
+    const disposeRecent=this.social?agent.ctx.systemPrompt.section({name:'amphoreus-social-context',order:99998,interpolate:false,
+      text:()=>{const text=this.social!.text(context.event.event_id,source=>this.socialAllowed(source));renderedSocial=text?context.event:undefined;return text}}):()=>{}
     if(!this.archive&&context.history) await this.delivery.send(agent, `history-${context.sessionId}`, `以下是已有历史，仅供参考，不重复执行：\n\n${context.history}`, { inject: '统一主对话历史' }, signal)
     const active = { agent, context, signal, closing: false, expected: new Map<string, { event: MainContext['event']; origin: MainContext['origin'] }>(), deliveries: new Set<Promise<void>>() }
     this.mainActive = active
     const off = this.ctx.on('session/event', (session, event) => {
-      if (session !== agent.session || event.type !== 'user/message') return
+      if (session !== agent.session) return
+      if(event.type==='request/header'){if(renderedSocial)this.social?.presented(renderedSocial);return}
+      if(event.type!=='user/message')return
       const deliveryId = String(event.data.id)
       const input = active.expected.get(deliveryId)
       if (input) {
         this.media?.admitInbox(input.event.event_id)
+        this.social?.admit(input.event)
         active.expected.delete(deliveryId); context.admit(input.event)
         this.archive?.bind({ session_id: agent.id, branch: 'main', run_id: context.runId, event_id: input.event.event_id })
       }
@@ -322,7 +333,7 @@ export class DshAgentDriver implements AgentDriver {
     active.expected.set(`dsh-amphoreus:${context.deliveryId ?? context.runId}`, { event: context.event, origin: context.origin })
     const reviewPrompt=isMemoryReview(context.event)?`\n内部回顾：今天是${this.archive?.memory.today()??new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai'}).format(new Date())}（北京时间）。正式日记用今天日期，较早经历标明发生日；旧日记不改。潜意识已在后台整理，直接审阅回传候选；需补充则联系原分支，勿另起重复回顾。勿对外发言。` : ''
     try { await this.run(agent, context.deliveryId ?? context.runId,
-      await this.modelInput(context.event, context.origin, signal), MAIN_PROMPT+reviewPrompt+(reviewPrompt?'':this.memes?.guidance(context.event.event_id)??''), false, signal, agent => [
+      input, MAIN_PROMPT+reviewPrompt+(reviewPrompt?'':this.memes?.guidance(context.event.event_id)??''), false, signal, agent => [
       ...this.memoryTools(agent),
       ...(this.memes?[
         this.register(agent,'send_meme','选表情，不直接发送。将候选content交speak，禁止贴路径或[表情]标记。',z.object({query:z.string().max(200).default(''),tag:z.string().max(40).default(''),limit:z.number().int().min(1).max(8).default(3)}).strict(),args=>this.memes!.search(args.query,args.tag,args.limit)),
@@ -366,11 +377,18 @@ export class DshAgentDriver implements AgentDriver {
         z.object({ active: z.boolean(), goal: z.string().max(4000).default('') }).strict(), args => { context.setCollaboration(args.active, args.goal); return context.collaboration() }),
     ]) } finally { disposeRecent(); off(); if (this.mainActive === active) this.mainActive = undefined }
   }
+  private prepareSocial(event:MainContext['event']){
+    this.social?.prepare(event,this.presence?.settings(event.conversation_id).mode??'heart',source=>this.socialAllowed(source))
+  }
+  private socialAllowed(source:MainContext['event']){
+    return this.canAdmit(source)&&(source.platform!=='qq'||this.qqControl?.enabled(source.conversation_id)!==false)&&this.blocklist?.allowed(source)!==false
+  }
   async steerMain(event: MainContext['event'], origin: MainContext['origin'], runId: string, deliveryId: string): Promise<boolean> {
     const active = this.mainActive
     if (!active || active.context.runId !== runId || active.closing) return false
     active.expected.set(`dsh-amphoreus:${deliveryId}`, { event, origin })
     const content = await this.modelInput(event, origin, active.signal)
+    this.prepareSocial(event)
     const delivery = this.delivery.send(active.agent, deliveryId, content, 'steer', active.signal,
       () => { if (this.mainActive !== active || active.closing) throw new Error('Main is already idle; keep the event queued') })
     active.deliveries.add(delivery)
