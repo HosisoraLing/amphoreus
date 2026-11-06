@@ -7,10 +7,11 @@ import type { MemoryStore } from './memory.ts'
 import type { AmphoreusStore } from './store.ts'
 import type { ArchiveBinding } from './archive.ts'
 import { redact } from './activity.ts'
+import {inspectMemory} from './memory-health.ts'
 import { StatisticsSettings, beijingDay, price, pricingSnapshot, type Usage } from './pricing.ts'
 
 type Scope = ArchiveBinding['branch'] | 'organizer' | 'meme'
-type Cursor = { offset: number; provider?: string; model?: string; cycle?: number; stepAt?: number; run?: string; event?: string }
+type Cursor = { offset: number; provider?: string; model?: string; cycle?: number; stepAt?: number; run?: string; event?: string; compaction?:{id:string;at:number;before:number|null;summary?:number} }
 type Fact = { id: string; at: string; session: string; scope: Scope; task?: string; run?: string; event?: string; kind: string; level: string;
   provider?: string; model?: string; summary: string; data: Record<string, unknown> }
 export type StatisticsQuery = { since?: string; until?: string; scope?: string; session?: string }
@@ -20,6 +21,29 @@ const mean = (values: number[]) => values.length ? values.reduce((a, b) => a + b
 
 /** Statistics belong to the current role and exclude a fork's inherited prefix. */
 export class Telemetry {
+  measure?:(session:Pick<Session,'id'|'isOwnSeq'>)=>number|null
+  private nextAudit=0
+  metric(kind:string,session:string,data:Record<string,unknown>,binding?:ArchiveBinding){
+    if(!this.memory.settings.observability.enabled)return
+    this.write({id:randomUUID(),at:this.now().toISOString(),session,scope:binding?.branch??'main',run:binding?.run_id,event:binding?.event_id,task:binding?.task_id,
+      kind,level:'info',summary:({memory_find:'记忆检索',social_context:'社交附加上下文',context_before_wake:'唤醒前上下文'} as Record<string,string>)[kind]??kind,data},true)
+  }
+  alert(key:string,message:string,data:Record<string,unknown>={}){
+    const id=`${this.memory.agentId}:${key}`,old=this.store.record<{active:boolean}>('memory-alert',id)
+    const safe=JSON.parse(JSON.stringify(redact(data,this.secrets)).replace(/\b(?:oc_sk_|npm_|sk-)[A-Za-z0-9_-]{10,}/g,'[密钥已隐藏]'))
+    this.store.setRecord('memory-alert',id,{key,agent_id:this.memory.agentId,active:true,message,at:this.now().toISOString(),data:safe})
+    if(!old?.active)this.write({id:randomUUID(),at:this.now().toISOString(),session:'memory-health',scope:'main',kind:'memory_invariant',level:'error',summary:message,data:{key,...safe}},true)
+  }
+  private resolved(key:string){
+    const id=`${this.memory.agentId}:${key}`,old=this.store.record<Record<string,unknown>>('memory-alert',id)
+    if(old?.active)this.store.setRecord('memory-alert',id,{...old,active:false,resolved_at:this.now().toISOString()})
+  }
+  health(){return{...inspectMemory(this.memory,this.store,this.now().getTime()),alerts:this.store.records<{agent_id:string;active:boolean;message:string}>('memory-alert').filter(row=>row.agent_id===this.memory.agentId&&row.active)}}
+  audit(force=false){
+    if(!this.memory.settings.observability.enabled||!force&&this.now().getTime()<this.nextAudit)return
+    this.nextAudit=this.now().getTime()+this.memory.settings.observability.intervalMs
+    for(const check of this.health().checks)if(check.failed)this.alert(check.key,check.message,check.data);else this.resolved(check.key)
+  }
   private settingsValue?: StatisticsSettings
   private nextPrune = 0
   constructor(readonly memory: MemoryStore, readonly store: AmphoreusStore, private readonly secrets: string[] = [], private readonly now = () => new Date()) {
@@ -39,7 +63,8 @@ export class Telemetry {
   private prune() { this.nextPrune = this.now().getTime() + 86400000; this.memory.host.db.prepare('DELETE FROM amphoreus_log WHERE agent_id=? AND at<?').run(this.memory.agentId, new Date(this.now().getTime() - this.settings().logRetentionDays * 86400000).toISOString()) }
   private write(fact: Fact, metric = false) {
     if (this.now().getTime() >= this.nextPrune) this.prune()
-    const safe = redact(fact.data, this.secrets)
+    const safe = redact(fact.data, this.secrets) as Record<string,unknown>
+    for(const key of ['tokens','context_tokens_before','context_tokens_after'])if(fact.data[key]===null||typeof fact.data[key]==='number'&&Number.isFinite(fact.data[key]))safe[key]=fact.data[key]
     const values = [fact.id, this.memory.agentId, fact.at, fact.session, fact.scope, fact.task ?? null, fact.run ?? null, fact.event ?? null,
       fact.kind, fact.level, fact.provider ?? null, fact.model ?? null, fact.summary, JSON.stringify(safe)]
     if (metric) this.memory.host.db.prepare('INSERT OR IGNORE INTO amphoreus_metric VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(...values)
@@ -62,14 +87,30 @@ export class Telemetry {
         ...(cleanError ? { error: cleanError } : {}), ...(historical ? { historical: true } : {}) } })
   }
   observe(session: Pick<Session, 'id' | 'isOwnSeq'>, binding: ArchiveBinding, event: SessionEvent) {
-    if (session.isOwnSeq(event.seq)) this.consume(String(session.id), binding, event)
+    if (session.isOwnSeq(event.seq)) this.consume(String(session.id), binding, event,session)
   }
-  private consume(id: string, binding: ArchiveBinding, event: SessionEvent) {
+  private consume(id: string, binding: ArchiveBinding, event: SessionEvent,session?:Pick<Session,'id'|'isOwnSeq'>) {
     const state = this.store.record<Cursor>('statistics-native', id) ?? { offset: 0 }
     if (event.seq < state.offset) return
     const at = new Date(event.time).toISOString(), base = { id: `native:${id}:${event.seq}`, at, session: id, scope: binding.branch,
       task: binding.task_id, run: state.run ?? binding.run_id, event: state.event ?? binding.event_id, provider: state.provider, model: state.model, level: 'info' }
-    if (event.type === 'request/header') { state.provider = event.data.header.config.provider; state.model = event.data.header.config.model }
+    if (event.type === 'request/header') {
+      const next=event.data.header.config.provider,allowed=this.memory.settings.reasoning.allowedProviders
+      if(state.provider&&state.provider!==next&&allowed.includes(state.provider)!==allowed.includes(next))this.alert('reasoning-provider-change','模型提供方切换改变了推理归档可用性',{previous:state.provider,next,allowed:allowed.includes(next)})
+      state.provider = next; state.model = event.data.header.config.model
+    }
+    if(event.type==='compaction/start'){
+      state.compaction={id:String(event.data.compactionId),at:event.time,before:session&&this.measure?this.measure(session):null}
+      this.write({...base,kind:'compaction_attempt',summary:'原生上下文压缩开始',data:{compaction_id:state.compaction.id,context_tokens_before:state.compaction.before}},true)
+    }else if(event.type==='compaction/end'){
+      const checkpoint=state.compaction,after=session&&this.measure?this.measure(session):null,error=event.data.error
+      this.write({...base,kind:'compaction_result',level:error?'error':'info',summary:error?'原生压缩失败':'原生压缩结束',data:{compaction_id:String(event.data.compactionId),status:error?'failed':'completed',
+        context_tokens_before:checkpoint?.before??null,context_tokens_after:after,reduced:checkpoint?.before!=null&&after!=null?after<checkpoint.before:null,duration_ms:checkpoint?event.time-checkpoint.at:null,summary_event_seq:checkpoint?.summary??null,...(error?{error}: {})}},true)
+      if(error)this.alert(`compaction:${id}`,'原生上下文压缩失败',{session:id,error})
+      else if(checkpoint?.before!=null&&after!=null&&after>=checkpoint.before)this.alert(`compaction:${id}`,'原生压缩结束后上下文未减少',{session:id,before:checkpoint.before,after})
+      else this.resolved(`compaction:${id}`)
+      state.compaction=undefined
+    }
     if (event.type === 'step/start') state.stepAt = event.time
     if (event.type === 'turn/start' && state.cycle === undefined) state.cycle = event.time
     if (event.type === 'user/message' && ['dsh-amphoreus'].includes(event.data.source.kind)) {
@@ -90,6 +131,7 @@ export class Telemetry {
       this.write({ ...base, kind: 'tool-result', level: event.data.message.isError ? 'error' : 'info', summary: event.data.message.isError ? '工具执行失败' : '工具执行完成',
         data: { call_id: event.data.message.toolCallId, is_error: !!event.data.message.isError } })
     } else if (event.type === 'compaction/summary') {
+      if(state.compaction)state.compaction.summary=Number(event.seq)
       this.write({ ...base, provider: event.data.provider, model: event.data.model, kind: 'compaction', summary: '上下文压缩完成',
         data: { ...(event.data.usage ? usageOf(event.data.usage) : {}), usage_available: !!event.data.usage,
           cycle_ms: state.cycle === undefined ? null : Math.max(0, event.time - state.cycle), compaction_id: String(event.data.compactionId) } }, true)
@@ -191,7 +233,11 @@ export class Telemetry {
     })
     const daily = new Map<string, typeof ledger>()
     for (const row of ledger) { const day = beijingDay(String(row.at)); daily.set(day, [...daily.get(day) ?? [], row]) }
-    return { as_of: this.now().toISOString(), time_zone: 'Asia/Shanghai', since: first, days, total, subagents: summarize(ledger.filter(row => row.scope !== 'main')),
+    return { memory_health:this.health(), memory_metrics:{
+      searches:rows.filter(row=>row.kind==='memory_find').length,search_average_ms:mean(rows.filter(row=>row.kind==='memory_find').map(row=>n(row.data.duration_ms))),
+      injected_tokens:rows.filter(row=>row.kind==='social_context').reduce((sum,row)=>sum+n(row.data.tokens),0),
+      compaction_attempts:rows.filter(row=>row.kind==='compaction_attempt').length,compaction_failures:rows.filter(row=>row.kind==='compaction_result'&&row.data.status==='failed').length,
+      main_run_duration_average_ms:mean(runs.filter(run=>run.finished_at).map(run=>Math.max(0,Date.parse(String(run.finished_at))-Date.parse(String(run.started_at)))))}, as_of: this.now().toISOString(), time_zone: 'Asia/Shanghai', since: first, days, total, subagents: summarize(ledger.filter(row => row.scope !== 'main')),
       roles: scopes.map(scope => ({ scope, ...summarize(ledger.filter(row => row.scope === scope)) })),
       sessions: sessions.map(session => ({ session, scope: ledger.find(row => row.session === session)!.scope, task_id: ledger.find(row => row.session === session)?.task,
         ...summarize(ledger.filter(row => row.session === session)) })).sort((a, b) => b.total - a.total),

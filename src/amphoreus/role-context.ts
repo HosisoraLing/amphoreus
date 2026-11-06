@@ -32,9 +32,12 @@ export class SocialContext {
       if(cutoff!==undefined){
         const rows=db.prepare(`SELECT e.value FROM amphoreus_event e WHERE e.agent_id=? AND e.platform=? AND e.conversation_id=?
           AND e.value ->> '$.account_id'=? AND e.source_kind='napcat' AND e.rowid<=?
-          AND NOT EXISTS(SELECT 1 FROM amphoreus_record r WHERE r.id=e.event_id AND r.kind IN ('main-inbox-seen','social-context-seen'))
+          AND NOT EXISTS(SELECT 1 FROM amphoreus_record r WHERE r.id=e.event_id AND r.kind IN ('main-inbox-seen','social-context-seen','social-context-excluded'))
           ORDER BY e.rowid LIMIT 250`).all(event.agent_id,event.platform,event.conversation_id,event.account_id,Number(cutoff))
-        const missed=rows.map(row=>JSON.parse(String(row.value)) as GatewayEvent).filter(past=>!excluded.has(past.event_id)&&canReceive(past)&&past.metadata.qq_receive_enabled!==false)
+        const missed=rows.map(row=>JSON.parse(String(row.value)) as GatewayEvent).filter(past=>{
+          if(!canReceive(past)||past.metadata.qq_receive_enabled===false){this.store.setRecord('social-context-excluded',past.event_id,{reason:'source-policy'});return false}
+          return !excluded.has(past.event_id)
+        })
         if(missed.length){
           const available=new Set(missed.map(past=>memoryId('gateway',past.event_id)))
           const summaries=this.memory.find({kind:'topic',status:'active',limit:30,order:'recent'})

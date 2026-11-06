@@ -88,3 +88,28 @@ it('measures the first successful reply per original source and counts activatio
   expect(stats.activations.main).toBe(1);expect(stats.activations.total).toBe(1)
   expect(stats.billing.windows[0]?.used).toBeCloseTo((.0003+.00075+.00027)/15/.2)
 })
+
+it('records native compaction pressure and alerts for no reduction without hiding numerical token metrics',()=>{
+ const f=fixture();let tokens=150000
+ f.telemetry.measure=()=>tokens
+ f.event('compaction/start',{compactionId:'c',turn:null})
+ f.event('compaction/summary',{compactionId:'c',provider:'p',model:'m'})
+ tokens=40000;f.event('compaction/end',{compactionId:'c',turn:null})
+ f.telemetry.metric('social_context','main',{tokens:750,password:'never-log-this'})
+ const data=f.telemetry.statistics(),results=f.telemetry.logs({kind:'compaction_result'}).items
+ expect(data.memory_metrics.injected_tokens).toBe(750)
+ expect(results[0]?.data).toMatchObject({context_tokens_before:150000,context_tokens_after:40000,reduced:true,status:'completed'})
+ f.event('compaction/start',{compactionId:'c2',turn:null});f.event('compaction/end',{compactionId:'c2',turn:null})
+ expect(f.telemetry.health().alerts.some(alert=>alert.message.includes('未减少'))).toBe(true)
+ expect(JSON.stringify(f.telemetry.logs({}))).not.toContain('never-log-this')
+})
+it('detects stale derived indices and dangling evidence, deduplicates alerts and resolves repaired invariants',()=>{
+ const f=fixture(),memory=f.telemetry.memory
+ const candidate=memory.put({kind:'candidate',title:'broken',text:'no evidence',created_at:memory.now(),source:{},data:{source_ids:['missing']}})
+ f.host.db.exec('DELETE FROM amphoreus_memory_fts')
+ f.telemetry.audit(true);f.telemetry.audit(true)
+ expect(f.telemetry.health().alerts.map(alert=>(alert as any).key)).toEqual(expect.arrayContaining(['fts-mismatch','orphan-evidence']))
+ expect(f.telemetry.logs({kind:'memory_invariant'}).items).toHaveLength(2)
+ memory.update(candidate.id,{data:{source_ids:[]}});memory.rebuildSearch();f.telemetry.audit(true)
+ expect(f.telemetry.health().alerts).toHaveLength(0)
+})

@@ -5,9 +5,12 @@ import type { MemoryAuthor } from './recollection.ts'
 /** Incremental review runs in a continuation; only Main can adopt diaries or Self. */
 export class Dreaming {
   private timer?: ReturnType<typeof setInterval>
+  onHealth:()=>void=()=>{}
   constructor(readonly memory: MemoryStore, private readonly runtime: AmphoreusRuntime) {}
   start(): void {
-    const tick = () => { this.memory.expire(); void this.schedule(false).catch(() => {
+    const tick = () => { try{this.memory.expire();this.onHealth()}catch{
+      this.runtime.store.setRecord('error','memory-health',{error:'记忆维护检查失败；原文保留，请检查索引及日志。'});this.runtime.onChange()
+    }void this.schedule(false).catch(() => {
       this.runtime.store.setRecord('error', 'dreaming', { error: '回顾调度未完成，将在下一轮重试；历史记录保留。' })
       this.runtime.onChange()
     }) }

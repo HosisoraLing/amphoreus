@@ -32,7 +32,7 @@
 | **一个持续主会话** | 所有平台共用 Main；来源标签和权限用于路由，聊天历史不会按平台拆成几个人 |
 | **统一消息出口** | `speak` 默认原路回复，也可指定已授权渠道；普通 assistant 文本保留为内部想法 |
 | **各做各的后台分支** | worker 执行工具任务，continuation 通过原生 Fork 构思与回顾，topic 分支按需讨论旧话题 |
-| **有来源的分层记忆** | 保存经历、正式发言、内部想法、候选、日记、Self 与话题原文；摘要不替换原始记录 |
+| **有来源的分层记忆** | 保存经历、发言、想法和身份历史；中文 FTS5 检索、事实有效期与证据关联帮助找回过去，摘要不替换原文 |
 | **夜间回顾** | 北京时间 01:00 直接启动潜意识，整理时不占 Main；草稿返回后再由 Main 审阅 |
 | **QQ 自主参与** | 心意模式与混合调度可切换；支持总开关、渠道开关和每个群聊/私聊的分开关 |
 | **按需多模态** | 图片与 GIF 按顺序进入模型；语音可接 ASR，视频、文件和合并转发默认只给预览 |
@@ -132,7 +132,7 @@ AMPHOREUS_CONFIG=/absolute/private/amphoreus.json dsh --profile amphoreus
 | 主题 | 文档 |
 | --- | --- |
 | 安装、启动、升级 | [发布说明](docs/publishing.md) · [部署与运行](docs/009-amphoreus.md) · [独立认证](docs/standalone-auth.md) |
-| 记忆、原文与旧数据 | [Memory Foundation](docs/010-memory-foundation.md) · [迁移说明](docs/amphoreus-legacy-import.md) · [话题串](docs/topic-threads.md) |
+| 记忆、原文与旧数据 | [Memory Foundation](docs/010-memory-foundation.md) · [记忆增强与验证](docs/memory-enhancement.md) · [迁移说明](docs/amphoreus-legacy-import.md) · [话题串](docs/topic-threads.md) |
 | 消息、群聊与权限 | [统一发言](docs/amphoreus-speak.md) · [群聊参与](docs/amphoreus-social-presence.md) · [开关](docs/amphoreus-controls.md) · [黑名单](docs/user-blacklist.md) |
 | 模型与人际关系 | [分角色模型](docs/amphoreus-models.md) · [人物关系](docs/amphoreus-people.md) |
 

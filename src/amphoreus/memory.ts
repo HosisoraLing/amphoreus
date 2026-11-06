@@ -9,6 +9,7 @@ export const MemorySettings = z.object({
   timeZone: z.string().refine(value => { try { new Intl.DateTimeFormat('en', { timeZone: value }); return true } catch { return false } }, 'Invalid IANA time zone').default('Asia/Shanghai'),
   dreaming: z.object({ consolidation:z.boolean().default(false), enabled: z.boolean().default(true), at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('01:00') }).prefault({}),
   search:z.object({enabled:z.boolean().default(true)}).prefault({}),
+  observability:z.object({enabled:z.boolean().default(true),intervalMs:z.number().int().min(1000).max(3600000).default(300000),dreamingStallHours:z.number().min(1).max(720).default(48)}).prefault({}),
   socialContext: z.object({enabled:z.boolean().default(true),hybridBudgetTokens:z.number().int().min(200).max(8000).default(1000)}).prefault({}),
 }).prefault({})
 export type MemorySettings = z.infer<typeof MemorySettings>

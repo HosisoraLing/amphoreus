@@ -51,7 +51,7 @@ it('gives nightly dispatch and draft review the current Beijing diary day withou
  vi.useFakeTimers();vi.setSystemTime(new Date('2026-11-05T17:05:00Z'))
  try{
   const ctx={on:vi.fn(()=>()=>{})},driver=new DshAgentDriver(ctx as never,()=>({agent_id:'role',name:'fish',persona:'persona'}),'/unused',{main:null,worker:null},8)
-  ;(driver as any).ensure=async()=>({id:'main',session:{}})
+  ;(driver as any).ensure=async()=>({id:'main',session:{},ctx:{get:()=>undefined}})
   const run=vi.fn(async(..._args:unknown[])=>{});(driver as any).run=run
   driver.memes={guidance:vi.fn(()=>'meme encouragement')} as never
   const base={event_id:'review',source_kind:'internal',platform:'internal',conversation_id:'memory-review',event_type:'memory.review',metadata:{},actor_id:'scheduler',account_id:'role',timestamp:new Date().toISOString(),content:[{type:'text',text:'review job'}]}

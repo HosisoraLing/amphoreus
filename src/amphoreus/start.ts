@@ -56,8 +56,13 @@ export async function startAmphoreus(ctx: Context, stateDir: string, configPath:
     const telemetry = new Telemetry(memory, store, secrets)
     store.onOperation = (...args) => telemetry.operation(...args)
     const archive = new MemoryArchive(memory, store, ctx, secrets)
+    telemetry.measure=session=>{
+      const meter=ctx.get('tokenMeter') as {measure(session:unknown):{totalTokens:number}}|undefined
+      return meter?.measure(session).totalTokens??null
+    }
     const driver = new DshAgentDriver(ctx, () => role, config.workspace, config.models, config.limits.mainSteps, archive, config.limits.collaborationSteps, config.limits.reviewSteps)
     driver.modelSettings = new ModelSettings(ctx, store, role.agent_id, config.models)
+    driver.onMetric=(kind,session,data)=>telemetry.metric(kind,session,data,archive.binding(session))
     memes=new MemeService(ctx,join(stateDir,'../../amphoreus/memes'),store,()=>driver.modelSettings!.configured('worker')??driver.modelSettings!.configured('main'),(...args)=>telemetry.auxiliary(...args,'meme'))
     await memes.start();driver.memes=memes
     people=new PeopleService(join(stateDir,'people.sqlite'),role.agent_id,config.people.ownerIdentities,config.api.tokens.filter(user=>user.role==='admin').map(user=>user.user),join(stateDir,'../../amphoreus/legacy-fishtank/.consistent/home/people/people.sqlite'))
@@ -82,6 +87,7 @@ export async function startAmphoreus(ctx: Context, stateDir: string, configPath:
     lifecycle = new TaskLifecycle(ctx, store, role.agent_id, config.workspace)
     runtime.onTaskIdle = task => lifecycle!.archiveTask(task)
     dreaming = new Dreaming(memory, runtime); archive.dreaming = dreaming
+    dreaming.onHealth=()=>telemetry.audit()
     if (config.qq) qq = new QQAdapter(runtime, config.qq,[config.workspace,join(stateDir,'../../attachments')],block=>{
       if(!block.attachment)return undefined
       return block.type==='image'?ctx.attachments.imageHostPath(block.attachment as never):ctx.attachments.fileHostPath(block.attachment as never)

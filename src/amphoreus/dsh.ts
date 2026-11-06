@@ -74,6 +74,7 @@ export class DshAgentDriver implements AgentDriver {
   private readonly agents = new Map<string, Agent>()
   private vitalityLoaded=false
   private readonly social?:SocialContext
+  onMetric:(kind:string,session:string,data:Record<string,unknown>)=>void=()=>{}
   private mainActive?: { agent: Agent; context: MainContext; signal: AbortSignal; closing: boolean;
     expected: Map<string, { event: MainContext['event']; origin: MainContext['origin'] }>; deliveries: Set<Promise<void>> }
   constructor(private readonly ctx: Context, private readonly role: () => Role, private readonly workspace: string,
@@ -238,7 +239,9 @@ export class DshAgentDriver implements AgentDriver {
         z.object({ query: z.string().max(500).optional(), kind: z.string().optional(), branch: z.string().optional(), since: z.string().optional(), until: z.string().optional(), historical: z.boolean().optional(),
           as_of:z.iso.datetime({offset:true}).optional(),current_facts:z.boolean().optional(),entity_ref:z.string().max(600).optional(),platform:z.string().max(80).optional(),actor_id:z.string().max(100).optional(),
           limit: z.number().int().min(1).max(20).default(8), offset: z.number().int().min(0).default(0) }).strict(), args => {
+          const started=performance.now()
           const snapshot = args.until ?? memory.now(), items = memory.summaries({ ...args, until: snapshot })
+          this.onMetric('memory_find',agent.id,{duration_ms:performance.now()-started,results:items.length,query_chars:args.query?.length??0})
           return { items, snapshot_at: snapshot, next_offset: items.length === args.limit ? args.offset + items.length : null }
         }),
       this.register(agent, 'memory_read', '按ID分页读记忆原文及来源；想法和推理不代表已说出口或已完成行动。',
@@ -317,6 +320,8 @@ export class DshAgentDriver implements AgentDriver {
     // A scoped system section is rewritten on each wake, never appended as repeated user-history snapshots.
     const input=await this.modelInput(context.event,context.origin,signal)
     this.prepareSocial(context.event)
+    const meter=agent.ctx.get('tokenMeter') as {measure(session:typeof agent.session):{totalTokens:number}}|undefined
+    if(meter)this.onMetric('context_before_wake',agent.id,{tokens:meter.measure(agent.session).totalTokens})
     let renderedSocial:MainContext['event']|undefined
     const disposeRecent=this.social?agent.ctx.systemPrompt.section({name:'amphoreus-social-context',order:99998,interpolate:false,
       text:()=>{const text=this.social!.text(context.event.event_id,source=>this.socialAllowed(source));renderedSocial=text?context.event:undefined;return text}}):()=>{}
@@ -325,7 +330,12 @@ export class DshAgentDriver implements AgentDriver {
     this.mainActive = active
     const off = this.ctx.on('session/event', (session, event) => {
       if (session !== agent.session) return
-      if(event.type==='request/header'){if(renderedSocial)this.social?.presented(renderedSocial);return}
+      if(event.type==='request/header'){
+        if(renderedSocial)this.social?.presented(renderedSocial)
+        const plan=this.archive?.store.record<{tokens:number;ids:string[];mode:string}>('social-context-plan',renderedSocial?.event_id??context.event.event_id)
+        this.onMetric('social_context',agent.id,{tokens:renderedSocial?plan?.tokens??0:0,source_count:renderedSocial?plan?.ids.length??0:0,mode:plan?.mode??'none'})
+        return
+      }
       if(event.type!=='user/message')return
       const deliveryId = String(event.data.id)
       const input = active.expected.get(deliveryId)

@@ -531,6 +531,8 @@ async function openMemory(id, append = false) {
   if (record.data.draft_source?.branch) provenance.append(node('dt', '草稿来源'), node('dd', branchName(record.data.draft_source.branch)))
   if (record.data.confirmed_by_run) provenance.append(node('dt', '最终确认'), node('dd', '主 Agent 已审阅确认'))
   if (record.data.version) provenance.append(node('dt', '版本'), node('dd', record.data.version))
+  for(const [key,title] of [['category','语义类别'],['evidence_type','证据类型'],['observed_at','观察时间'],['valid_from','生效时间'],['valid_to','失效时间']])if(key in record.data)provenance.append(node('dt',title),node('dd',record.data[key]??'未知'))
+  if(Array.isArray(record.data.entity_refs)&&record.data.entity_refs.length)provenance.append(node('dt','人物账号'),node('dd',record.data.entity_refs.join('、')))
   detail.append(provenance)
   if (record.expires_at) detail.append(node('p', `原始推理保留至 ${time(record.expires_at)}`, 'muted'))
   if (!memoryText) detail.append(node('p', record.status === 'expired' ? '原文已按保留策略清除，来源与关联仍在。' : '没有可用原文。', 'muted'))
@@ -1034,6 +1036,16 @@ async function refreshStatistics() {
     ['联网搜索次数',countText(data.reliability.web_searches),'已记录的搜索工具调用，重试分别计数'],['模型请求 / 工具调用',`${countText(t.requests)} / ${countText(data.reliability.tool_calls)}`,'模型请求与工具调用分别计数'],
     ['Main 失败 / 中断',countText(data.reliability.failed_runs),`已完成 ${countText(data.reliability.completed_runs)} 次`],
   ].map(values=>statisticsMetric(...values)))
+  if(data.memory_health){
+    const h=data.memory_health,m=data.memory_metrics||{}
+    $('statistics-metrics').append(
+      statisticsMetric('记忆索引',h.index.consistent?'一致':'需要检查',`${countText(h.index.indexed)} 条索引 / ${countText(h.index.originals)} 条原文`),
+      statisticsMetric('待巩固历史',countText(h.dreaming_cursor_lag),'已归档且尚未提交回顾的原始记录'),
+      statisticsMetric('记忆检索平均耗时',latencyText(m.search_average_ms),`${countText(m.searches)} 次工具检索`),
+      statisticsMetric('附加上下文估算',`${countText(m.injected_tokens)} Token`,'所选范围内的社交上下文'),
+      statisticsMetric('原生压缩尝试 / 失败',`${countText(m.compaction_attempts)} / ${countText(m.compaction_failures)}`,'沿用宿主事件，未设置额外压缩限额'),
+      statisticsMetric('记忆健康告警',countText(h.alerts.length),h.alerts.map(alert=>alert.message).join('；')||'当前无活动告警'))
+  }
   $('statistics-roles').replaceChildren()
   for(const role of data.roles){const row=node('div',undefined,'statistics-role'),bar=node('div',undefined,'statistics-bar'),fill=node('span');fill.style.width=`${t.total?role.total/t.total*100:0}%`;bar.append(fill);row.append(node('strong',scopeLabels[role.scope]||role.scope),bar,node('span',`${countText(role.total)} Token`));$('statistics-roles').append(row)}
   if(!data.roles.length)empty($('statistics-roles'),'暂无请求记录')
