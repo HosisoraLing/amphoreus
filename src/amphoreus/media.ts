@@ -327,11 +327,36 @@ export class MediaInput {
     })
   }
   async forward(eventId: string, index: number, offset: number, limit: number, signal: AbortSignal): Promise<ModelBlock[]> {
-    const event = this.sourceEvent(eventId)
-    if (!event || event.agent_id !== this.memory.agentId || !this.canAdmit(event)||!this.rpc) throw new Error('转发来源不存在')
-    eventId=event.event_id
-    const block = event.content.filter(block => block.type === 'forward')[index]
-    if (!block) throw new Error('转发编号不存在')
+    const wake = this.store.event(eventId)?.event
+    if (!wake || wake.agent_id !== this.memory.agentId || !this.canAdmit(wake)||!this.rpc) throw new Error('转发来源不存在')
+    // Match the cards actually delivered by inbox(), not just the batch's final origin message.
+    const ids = this.store.record<string[]>('main-inbox-plan', eventId)
+      ?? (['qq-observation','qq-debounce'].includes(wake.source_kind) && Array.isArray(wake.metadata.source_event_ids)
+        ? wake.metadata.source_event_ids.filter((id):id is string => typeof id === 'string')
+        : [this.sourceEvent(eventId)?.event_id ?? eventId])
+    const cards: { event: GatewayEvent; block: ContentBlock }[] = []
+    const collect = async (blocks: ContentBlock[], event: GatewayEvent, depth = 0): Promise<void> => {
+      for (const block of blocks) {
+        signal.throwIfAborted()
+        if (block.type === 'forward') cards.push({ event, block })
+        else if (block.type === 'quote' && depth < 2) {
+          let quoted
+          try { quoted = await this.quote(event, String(block.message_id)) }
+          catch { signal.throwIfAborted(); continue }
+          await collect(quoted.content, event, depth + 1)
+        }
+      }
+    }
+    for (const id of ids) {
+      const source = this.store.event(id)?.event
+      if (!source || source.agent_id !== wake.agent_id || source.platform !== wake.platform || source.account_id !== wake.account_id
+        || source.conversation_id !== wake.conversation_id || source.metadata.qq_receive_enabled === false || !this.canAdmit(source)) continue
+      await collect(source.content, source)
+    }
+    const selected = cards[index]
+    if (!selected) throw new Error('转发编号不存在（按本次唤醒中卡片出现顺序，从0起）')
+    const { event, block } = selected
+    eventId = event.event_id
     const result = await this.forwardData(eventId,String(block.forward_id ?? ''))
     const messages = Array.isArray(result.messages) ? result.messages : []
     const content: ModelBlock[] = [text(`展开第${offset + 1}至${Math.min(messages.length, offset + limit)}条；共${messages.length}条。`)]

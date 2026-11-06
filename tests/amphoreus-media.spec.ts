@@ -179,6 +179,33 @@ it('shows native forward card preview without expanding, and renders referenced 
   expect((await f.media.forward(e.event_id,0,0,5,signal())).some(b=>b.type==='text'&&b.text==='内部全文')).toBe(true)
 })
 
+it('expands forwards across a wake batch, including quoted cards, in visible order without event IDs',async()=>{
+  const rpc=vi.fn(async(action:string,params:Record<string,unknown>)=>action==='get_msg'
+    ?{group_id:123,sender:{user_id:'friend'},message:[{type:'forward',data:{id:'quoted-forward'}}]}
+    :{messages:Array.from({length:19},(_,index)=>({sender:{nickname:'朋友'},message:[{type:'text',data:{text:`${params.message_id}正文${index}`}}]}))})
+  const f=open(undefined,rpc),message=(id:string,content:ContentBlock[])=>({...f.event(content),event_id:id,idempotency_key:id,source_kind:'napcat',platform:'qq',account_id:'bot',conversation_id:'group:123',metadata:{message_type:'group'}})
+  const card=message('card',[{type:'forward',forward_id:'first-forward',preview:['朋友: 摘要'],summary:'查看19条转发消息'}]),
+    quote=message('quote',[{type:'quote',message_id:'42'}]),last=message('last',[{type:'text',text:'真的假的'}]),
+    other={...card,event_id:'other',idempotency_key:'other',conversation_id:'group:999'},
+    blocked={...card,event_id:'blocked',idempotency_key:'blocked',actor_id:'blocked'},
+    disabled={...card,event_id:'disabled',idempotency_key:'disabled',metadata:{...card.metadata,qq_receive_enabled:false}},
+    batch={...last,event_id:'wake',idempotency_key:'wake',source_kind:'qq-observation',content:[],metadata:{origin_event_id:last.event_id,source_event_ids:[other.event_id,blocked.event_id,disabled.event_id,card.event_id,quote.event_id,last.event_id]}}
+  for(const event of [card,quote,last,other,blocked,disabled,batch])f.store.insertEvent(event)
+  f.media.canAdmit=event=>event.actor_id!=='blocked'
+  const preview=JSON.stringify(await f.media.inbox(batch,signal()))
+  expect(preview).toContain('查看19条转发消息');expect(preview).not.toContain('first-forward正文');expect(preview).not.toContain('quoted-forward正文4')
+  rpc.mockClear()
+  const first=JSON.stringify(await f.media.forward(batch.event_id,0,10,9,signal()))
+  expect(first).toContain('first-forward正文10');expect(first).toContain('first-forward正文18');expect(first).not.toContain('正文9')
+  expect(JSON.stringify(await f.media.forward(batch.event_id,1,0,1,signal()))).toContain('quoted-forward正文0')
+  expect(JSON.stringify(await f.media.forward(card.event_id,0,0,1,signal()))).toContain('first-forward正文0')
+  await expect(f.media.forward(batch.event_id,2,0,1,signal())).rejects.toThrow('转发编号不存在')
+  expect(rpc.mock.calls.filter(([action])=>action==='get_forward_msg').map(([,params])=>params.message_id)).toEqual(['first-forward'])
+  // A plain wake can also admit an earlier quiet card via its saved inbox plan.
+  f.store.setRecord('main-inbox-plan',last.event_id,[card.event_id,last.event_id])
+  expect(JSON.stringify(await f.media.forward(last.event_id,0,0,1,signal()))).toContain('first-forward正文0')
+})
+
 it('builds a compact human-style forward preview in Runtime and reveals the remaining text only on an explicit read',async()=>{
   const messages=Array.from({length:5},(_,index)=>({sender:{nickname:'东方铁蛋'},message:index===0?[{type:'image',data:{url:'https://media.test/private-image'}}]:[{type:'text',data:{text:index===4?'只有主动展开才能看到这句':'这异环在搞啥'}}]}))
   const rpc=vi.fn(async(_action:string,_params:Record<string,unknown>)=>({messages})),f=open(MediaSettings.parse({}),rpc)

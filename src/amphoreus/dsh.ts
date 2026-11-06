@@ -211,7 +211,7 @@ export class DshAgentDriver implements AgentDriver {
           return { content: await this.media!.read(source.eventId, source.index, execution.signal,input.frames) } as never
         },
       }), agent.ctx.tools.register({ name: 'read_forward',
-        description: '主动展开合并转发，默认只看QQ卡片预览。默认当前消息，可用event_id指定历史来源；index从0起，分页读取。',
+        description: '主动展开合并转发。默认本次唤醒，index按卡片出现顺序从0起（含引用），分页读取；无需消息ID。event_id仅指定历史来源时用。',
         parameters: z.toJSONSchema(z.object({ event_id: z.string().min(1).optional(), index: z.number().int().min(0).default(0), offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(10).default(5) }).strict()),
         output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => (value as unknown as { content: ModelBlock[] }).content },
         execute: async (args, execution) => {
