@@ -386,8 +386,8 @@ export class AmphoreusHttp {
         if (url.pathname === '/api/memory/stats') { json(res, 200, { counts: this.memory.counts(), policy: this.memory.settings, distribution: this.memory.distribution(), current_self: this.memory.find({ kind: 'self', status: 'confirmed', limit: 1 })[0] ?? null }); return }
         if (url.pathname === '/api/memory') {
           const query = z.object({ query: z.string().max(500).optional(), kind: z.string().optional(), branch: z.string().optional(), status: z.string().optional(),
-            since: z.string().optional(), until: z.string().optional(), historical: z.enum(['true','false']).optional(), order: z.enum(['recent']).optional() }).parse(Object.fromEntries([...url.searchParams].filter(([key]) => !['limit','offset'].includes(key))))
-          json(res, 200, this.memory.summaries({ ...query, historical: query.historical === 'true', limit, offset })); return
+            since: z.string().optional(), until: z.string().optional(), historical: z.enum(['true','false']).optional(), order: z.enum(['recent']).optional(),as_of:z.iso.datetime({offset:true}).optional(),current_facts:z.enum(['true','false']).optional(),entity_ref:z.string().max(600).optional(),platform:z.string().max(80).optional(),actor_id:z.string().max(100).optional() }).parse(Object.fromEntries([...url.searchParams].filter(([key]) => !['limit','offset'].includes(key))))
+          json(res, 200, this.memory.summaries({ ...query,current_facts:query.current_facts==='true', historical: query.historical === 'true', limit, offset })); return
         }
         const id = /^\/api\/memory\/([^/]+)$/.exec(url.pathname)
         if (id) { const key = decodeURIComponent(id[1]!); if (!this.memory.get(key)) throw new HttpError(404, 'Memory not found'); json(res, 200, { ...this.memory.read(key, offset, z.coerce.number().int().min(200).max(12000).default(4000).parse(url.searchParams.get('size') ?? undefined)), related: this.memory.related(key) }); return }

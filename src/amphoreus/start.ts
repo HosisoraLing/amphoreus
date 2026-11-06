@@ -62,6 +62,10 @@ export async function startAmphoreus(ctx: Context, stateDir: string, configPath:
     await memes.start();driver.memes=memes
     people=new PeopleService(join(stateDir,'people.sqlite'),role.agent_id,config.people.ownerIdentities,config.api.tokens.filter(user=>user.role==='admin').map(user=>user.user),join(stateDir,'../../amphoreus/legacy-fishtank/.consistent/home/people/people.sqlite'))
     driver.people=people
+    memory.entityRefs=ref=>{
+      const person=people!.store.identity(ref)
+      return person?people!.store.db.prepare('SELECT ref FROM identities WHERE person_id=? ORDER BY ref').all(person.person_id).map(row=>String(row.ref)):[]
+    }
     runtime = new AmphoreusRuntime(store, driver, role, config.limits,config.delivery)
     topicOrganizer=new TopicOrganizer(memory,store,organizerClassifier(ctx,()=>driver.modelSettings!.configured('worker')??driver.modelSettings!.configured('main'),(...args)=>telemetry.auxiliary(...args)))
     driver.topicOrganizer=topicOrganizer

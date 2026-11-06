@@ -235,7 +235,9 @@ export class DshAgentDriver implements AgentDriver {
         },
       })] : []),
       this.register(agent, 'memory_find', '查找全局历史，默认8条短摘录。继续分页用next_offset，并将snapshot_at传入until，避免新记录改变分页。想法、发言与行动不可混淆。',
-        z.object({ query: z.string().max(500).optional(), kind: z.string().optional(), branch: z.string().optional(), since: z.string().optional(), until: z.string().optional(), historical: z.boolean().optional(), limit: z.number().int().min(1).max(20).default(8), offset: z.number().int().min(0).default(0) }).strict(), args => {
+        z.object({ query: z.string().max(500).optional(), kind: z.string().optional(), branch: z.string().optional(), since: z.string().optional(), until: z.string().optional(), historical: z.boolean().optional(),
+          as_of:z.iso.datetime({offset:true}).optional(),current_facts:z.boolean().optional(),entity_ref:z.string().max(600).optional(),platform:z.string().max(80).optional(),actor_id:z.string().max(100).optional(),
+          limit: z.number().int().min(1).max(20).default(8), offset: z.number().int().min(0).default(0) }).strict(), args => {
           const snapshot = args.until ?? memory.now(), items = memory.summaries({ ...args, until: snapshot })
           return { items, snapshot_at: snapshot, next_offset: items.length === args.limit ? args.offset + items.length : null }
         }),

@@ -61,12 +61,14 @@ export class Recollection {
     const jobId=input.review_job_id??input.job_id
     const structured=['candidate','insight'].includes(input.kind)&&!!input.category
     if(structured&&!input.source_ids.length)throw Error('Structured candidates require real source_ids')
-    if(input.valid_from&&input.valid_to&&input.valid_from>=input.valid_to)throw Error('Invalid fact validity interval')
+    if(input.valid_from&&input.valid_to&&Date.parse(input.valid_from)>=Date.parse(input.valid_to))throw Error('Invalid fact validity interval')
+    if(input.entity_refs?.some(ref=>!this.memory.entityRefs(ref).includes(ref)))throw Error('Entity references require verified stable identities')
     const id = structured&&jobId?memoryId('consolidated-candidate',this.memory.agentId,jobId,[...new Set(input.source_ids)].sort(),input.category,input.content.normalize('NFKC').trim().replace(/\s+/g,' '))
       :memoryId('candidate', this.memory.agentId, author.source.session_id, author.call_id, input.kind)
     const existing=this.memory.get(id)
     if(existing)return existing
     const replaced=input.replaces?this.memory.get(input.replaces):undefined
+    if(structured&&replaced&&!['candidate','insight'].includes(replaced.kind))throw Error('Facts cannot replace original history or identity records')
     if(input.replaces&&!replaced)throw new Error('Replaced memory not found')
     if(input.kind==='topic'&&replaced&&replaced.kind!=='topic')throw new Error('A topic can only replace a topic version')
     const topicId=input.kind==='topic'?this.canonicalTopic(input.topic_id??(replaced?String(replaced.data.topic_id):memoryId('topic',this.memory.agentId,input.title))):input.topic_id
@@ -97,7 +99,7 @@ export class Recollection {
       data: { source_ids: sourceIds, ...(topicId ? { topic_id: topicId } : {}), ...(input.related_task ? { related_task: input.related_task } : {}),
         ...(input.replaces ? { replaces: input.replaces } : {}), ...(jobId ? { job_id:jobId,review_job_id:jobId } : {}),
         ...(structured?{category:input.category,evidence_type:input.evidence_type??'inferred',entity_refs:input.entity_refs??[],
-          observed_at:input.observed_at??null,valid_from:input.valid_from??null,valid_to:input.valid_to??null}:{}),
+          observed_at:input.observed_at?new Date(input.observed_at).toISOString():null,valid_from:input.valid_from?new Date(input.valid_from).toISOString():null,valid_to:input.valid_to?new Date(input.valid_to).toISOString():null}:{}),
         ...(input.kind === 'diary_draft' ? { day: input.diary_date ?? this.memory.today() } : {}),
         ...(input.kind === 'self_draft' ? { base_version: this.currentSelf()?.id ?? null } : {}), evidence_based: evidence, revisions: [] } })
     if (input.kind === 'topic') for (const old of versions) {
@@ -116,6 +118,14 @@ export class Recollection {
     if (this.memory.get(decisionId)) return this.memory.get(id)!
     const status = action === 'adopt' ? 'adopted' : action === 'archive' ? 'archived' : action === 'supersede' ? 'superseded' : 'interesting'
     return this.memory.host.atomic(() => {
+      if(action==='adopt'&&typeof record.data.replaces==='string'){
+        const old=this.memory.get(record.data.replaces)
+        if(old&&['candidate','insight'].includes(old.kind)){
+          const end=typeof record.data.valid_from==='string'&&record.data.evidence_type!=='inferred'?record.data.valid_from:null
+          if(end&&typeof old.data.valid_from==='string'&&end<=old.data.valid_from)throw Error('Replacement validity predates the old fact')
+          this.memory.update(old.id,{status:'superseded',data:{...old.data,superseded_by:id,...(end?{valid_to:end}:{})}})
+        }
+      }
       this.memory.put({ id: decisionId, kind: 'decision', title: `Main ${status}：${record.title}`, text: note, created_at: this.memory.now(),
         source: { ...author.source, branch: 'main' }, importance: action === 'adopt' ? .95 : .6, data: { memory_id: id, previous_status: record.status, action, related_id: relatedId } })
       if (action === 'adopt' && this.memory.settings.reasoning.retainImportantRaw) {
