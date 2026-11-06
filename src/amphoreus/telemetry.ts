@@ -20,7 +20,6 @@ const mean = (values: number[]) => values.length ? values.reduce((a, b) => a + b
 
 /** Statistics belong to the current role and exclude a fork's inherited prefix. */
 export class Telemetry {
-  private readonly cursors = new Map<string, Cursor>()
   private settingsValue?: StatisticsSettings
   private nextPrune = 0
   constructor(readonly memory: MemoryStore, readonly store: AmphoreusStore, private readonly secrets: string[] = [], private readonly now = () => new Date()) {
@@ -66,7 +65,7 @@ export class Telemetry {
     if (session.isOwnSeq(event.seq)) this.consume(String(session.id), binding, event)
   }
   private consume(id: string, binding: ArchiveBinding, event: SessionEvent) {
-    const state = this.cursors.get(id) ?? this.store.record<Cursor>('statistics-native', id) ?? { offset: 0 }
+    const state = this.store.record<Cursor>('statistics-native', id) ?? { offset: 0 }
     if (event.seq < state.offset) return
     const at = new Date(event.time).toISOString(), base = { id: `native:${id}:${event.seq}`, at, session: id, scope: binding.branch,
       task: binding.task_id, run: state.run ?? binding.run_id, event: state.event ?? binding.event_id, provider: state.provider, model: state.model, level: 'info' }
@@ -98,7 +97,7 @@ export class Telemetry {
     } else if (event.type === 'turn/start' || event.type === 'turn/end') {
       this.write({ ...base, kind: event.type, summary: event.type === 'turn/start' ? 'Agent 激活' : 'Agent 本轮结束', data: {} }, true)
     }
-    state.offset = Number(event.seq) + 1; this.cursors.set(id, state); this.store.setRecord('statistics-native', id, state)
+    state.offset = Number(event.seq) + 1; this.store.setRecord('statistics-native', id, state)
   }
   auxiliary(provider: string, model: string, usage: TokenUsage | undefined, duration: number, ok: boolean, scope: Scope = 'organizer') {
     this.write({ id: randomUUID(), at: this.now().toISOString(), session: scope==='meme'?'meme-learning':'topic-organizer', scope, provider, model, kind: 'usage',

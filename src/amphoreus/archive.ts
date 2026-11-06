@@ -14,17 +14,16 @@ const parsedArguments = (value: unknown): unknown => { if (typeof value !== 'str
 
 /** Archive committed native messages, not stream deltas or a Fork's inherited prefix. */
 export class MemoryArchive {
-  private readonly cursors = new Map<string, NativeCursor>()
   onThought: (record: MemoryRecord) => Promise<void> = async () => {}
   onSelfConfirmed: (record: MemoryRecord) => Promise<void> = async () => {}
   dreaming?: Dreaming
   constructor(readonly memory: MemoryStore, readonly store: AmphoreusStore, private readonly ctx: Context, private readonly secrets: string[] = []) {}
   bind(binding: ArchiveBinding): void {
-    const old = this.cursors.get(binding.session_id) ?? this.store.record<NativeCursor>('memory-native', binding.session_id)
+    const old = this.store.record<NativeCursor>('memory-native', binding.session_id)
     const state = { offset: old?.offset ?? 0, binding: { ...old?.binding, ...binding } }
-    this.cursors.set(binding.session_id, state); this.store.setRecord('memory-native', binding.session_id, state)
+    this.store.setRecord('memory-native', binding.session_id, state)
   }
-  binding(id: string): ArchiveBinding | undefined { return this.cursors.get(id)?.binding ?? this.store.record<NativeCursor>('memory-native', id)?.binding }
+  binding(id: string): ArchiveBinding | undefined { return this.store.record<NativeCursor>('memory-native', id)?.binding }
   captureGateway(): void {
     let cursor = this.store.record<number>('memory-gateway', this.memory.agentId) ?? 0
     for (;;) {
@@ -65,7 +64,7 @@ export class MemoryArchive {
     if (thought) await this.onThought(thought)
   }
   private consume(id: string, event: SessionEvent): MemoryRecord | undefined {
-    const state = this.cursors.get(id) ?? this.store.record<NativeCursor>('memory-native', id)
+    const state = this.store.record<NativeCursor>('memory-native', id)
     if (!state || event.seq < state.offset) return
     const binding = state.binding
     if(binding.branch==='main')captureVitality(this.store,this.memory.agentId,event)
@@ -101,7 +100,7 @@ export class MemoryArchive {
         status: event.data.message.isError ? 'failed' : 'completed', data: { direction: 'result' } })
     }
     state.offset = Number(event.seq) + 1
-    this.cursors.set(id, state); this.store.setRecord('memory-native', id, state)
+    this.store.setRecord('memory-native', id, state)
     return thought?.source.branch === 'main' ? thought : undefined
   }
   async backfill(bindings: ArchiveBinding[]): Promise<void> {
@@ -110,7 +109,7 @@ export class MemoryArchive {
       this.bind(binding)
       if (!await this.ctx.sessionPersistence.stat(binding.session_id as SessionId)) continue
       await using handle = await this.ctx.sessionPersistence.open(binding.session_id as SessionId, 'read')
-      let offset = Math.max(handle.inheritedEventCount, this.cursors.get(binding.session_id)!.offset)
+      let offset = Math.max(handle.inheritedEventCount, this.store.record<NativeCursor>('memory-native', binding.session_id)!.offset)
       for (;;) {
         const { events } = await handle.read(offset, 250)
         if (!events.length) break
