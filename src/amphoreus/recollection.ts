@@ -121,7 +121,7 @@ export class Recollection {
     const day = String(draft.data.day ?? this.memory.today())
     if (!isSelf && day !== this.memory.today()) throw new Error('Closed historical diaries are immutable; write the new understanding in today’s diary')
     const previous = isSelf ? this.currentSelf() : this.memory.find({ kind: 'diary', status: 'confirmed', limit: 100 }).find(r => r.data.day === day)
-    if (isSelf && (expectedVersion === undefined ? draft.data.base_version : expectedVersion) !== (previous?.id ?? null)) throw new Error('Self changed since this draft; refresh and review before confirming')
+    if (isSelf && ((expectedVersion === undefined ? draft.data.base_version : expectedVersion) ?? null) !== (previous?.id ?? null)) throw new Error('Self changed since this draft; refresh and review before confirming')
     for (const ref of adoptIds) if (!['candidate','insight'].includes(this.memory.get(ref)?.kind ?? '')) throw new Error('Adoption must reference a real candidate or insight')
     return this.memory.host.atomic(() => {
       const record = this.memory.put({ id: finalId, kind: isSelf ? 'self' : 'diary', title: isSelf ? '我是谁' : day, text: body, status: 'confirmed', importance: .95,
