@@ -201,9 +201,16 @@ export class AmphoreusRuntime {
       state: 'running', started_at: new Date().toISOString() })
     this.onChange()
     const budget = new AbortController()
-    let timeout: ReturnType<typeof setTimeout>
-    const mainBudget = isMemoryReview(event) ? this.limits.reviewTimeoutMs ?? 180000 : this.limits.mainTimeoutMs
-    const arm = () => { clearTimeout(timeout); timeout = setTimeout(() => budget.abort(new Error('Main Run time budget exceeded')), this.collaboration().active ? this.limits.collaborationTimeoutMs ?? 300000 : mainBudget); timeout.unref() }
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    const mainBudget = isMemoryReview(event) ? this.limits.reviewTimeoutMs ?? 0 : this.limits.mainTimeoutMs
+    const arm = () => {
+      clearTimeout(timeout); timeout = undefined
+      const duration = this.collaboration().active ? this.limits.collaborationTimeoutMs ?? 0 : mainBudget
+      if (duration > 0) {
+        timeout = setTimeout(() => budget.abort(new Error('Main Run time budget exceeded')), duration)
+        timeout.unref()
+      }
+    }
     arm()
     const signal = AbortSignal.any([this.lifetime.signal, budget.signal]), steered = new Set<string>(), admitted = new Map([[event.event_id, event]])
     const context: MainContext = { event, origin, sessionId, runId, ...(history ? { history } : {}),
@@ -263,7 +270,7 @@ export class AmphoreusRuntime {
       this.store.finishRun(runId, this.lifetime.signal.aborted ? 'interrupted' : 'failed', textError(error))
       for (const id of steered) this.store.setEventState(id, 'failed', 'Main failed during Steering; inspect before retry')
       throw error
-    } finally { clearTimeout(timeout!); this.activeMain = undefined; this.mains.delete(work); this.onChange() }
+    } finally { clearTimeout(timeout); this.activeMain = undefined; this.mains.delete(work); this.onChange() }
   }
 
   collaboration(): { active: boolean; goal: string } { return this.store.record('collaboration', this.role.agent_id) ?? { active: false, goal: '' } }

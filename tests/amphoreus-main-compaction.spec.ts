@@ -77,10 +77,11 @@ it.each(['error', 'missing'] as const)('reports %s compaction instead of silentl
   expect(f.run).not.toHaveBeenCalled(); expect(f.checkpoint).not.toHaveBeenCalled()
 })
 
-it('defaults to a bounded five-minute Main budget and preserves explicit limits', () => {
+it('defaults all Main time budgets to unlimited and preserves explicit limits', () => {
   const limits = AmphoreusConfig.shape.limits
-  expect(limits.parse(undefined).mainTimeoutMs).toBe(300000)
+  expect(limits.parse(undefined)).toMatchObject({ mainTimeoutMs: 0, reviewTimeoutMs: 0, collaborationTimeoutMs: 0 })
   expect(limits.parse({ mainTimeoutMs: 90000 }).mainTimeoutMs).toBe(90000)
-  expect(limits.safeParse({ mainTimeoutMs: 0 }).success).toBe(false)
+  expect(limits.safeParse({ mainTimeoutMs: 0 }).success).toBe(true)
+  expect(limits.safeParse({ mainTimeoutMs: -1 }).success).toBe(false)
   expect(limits.safeParse({ mainTimeoutMs: 300001 }).success).toBe(false)
 })

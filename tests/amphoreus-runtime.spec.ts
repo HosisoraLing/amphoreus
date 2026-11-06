@@ -14,7 +14,7 @@ const dirs: string[] = []
 afterEach(() => { dirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })) })
 const role = { agent_id: 'role', name: '翁法罗斯', persona: 'Persona' }
 const limits = { maxWorkers: 3, mainTimeoutMs: 10000, taskTimeoutMs: 10000, progressIntervalMs: 60000 }
-const open = (driver: AgentDriver, overrides: Partial<typeof limits> & {reviewTimeoutMs?:number} = {}) => {
+const open = (driver: AgentDriver, overrides: Partial<typeof limits> & {reviewTimeoutMs?:number;collaborationTimeoutMs?:number} = {}) => {
   const dir = mkdtempSync(join(tmpdir(), 'amphoreus-runtime-')); dirs.push(dir)
   const host = new Store(join(dir, 'test.sqlite'))
   const store = new AmphoreusStore(host)
@@ -352,6 +352,29 @@ it('bounds internal nightly dispatch and report review separately while ordinary
   expect(isMemoryReview({...event,conversation_id:'memory-review'})).toBe(false)
   await vi.advanceTimersByTimeAsync(1001);await f.runtime.scheduler.idle();expect(f.store.event(event.event_id)?.state).toBe('failed')
  }finally{vi.useRealTimers();await f.runtime.stop();f.host.close()}
+})
+
+it.each(['ordinary', 'review', 'collaboration'] as const)('leaves %s Main without a deadline while role controls can still stop it', async mode => {
+  let active: AbortSignal | undefined
+  const f = open(driver(async (context, signal) => {
+    if (context.event.source_kind === 'genesis') return
+    active = signal
+    if (mode === 'collaboration') context.setCollaboration(true, 'ongoing')
+    await new Promise<void>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))
+  }), { mainTimeoutMs: 0 })
+  await f.runtime.start(); await f.runtime.scheduler.idle(); vi.useFakeTimers()
+  try {
+    const { event } = mode === 'review'
+      ? await f.runtime.gateway.ingest('internal', { agent_id: 'role', source_kind: 'internal', platform: 'internal', account_id: 'role', conversation_id: 'memory-review', actor_id: 'scheduler', event_type: 'task.completed', timestamp: new Date().toISOString(), correlation_id: null, content: [{ type: 'text', text: 'review' }], metadata: {}, visibility: 'internal', idempotency_key: 'unlimited-review' })
+      : await f.runtime.receiveWeb('owner', 'chat', [{ type: 'text', text: 'continue' }], 'unlimited-main')
+    await vi.advanceTimersByTimeAsync(3600000)
+    expect(active).toBeDefined(); expect(active!.aborted).toBe(false)
+    expect(f.store.event(event.event_id)?.state).toBe('processing')
+    f.runtime.controls.configure({ enabled: false })
+    await f.runtime.scheduler.idle()
+    expect(active!.aborted).toBe(true)
+    expect(f.store.runs().find(run => run.event_id === event.event_id)?.state).toBe('interrupted')
+  } finally { vi.useRealTimers(); await f.runtime.stop(); f.host.close() }
 })
 
 
