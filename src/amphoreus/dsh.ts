@@ -318,7 +318,8 @@ export class DshAgentDriver implements AgentDriver {
     // The preset's native pre-step compaction owns pressure policy inside its
     // isolated scope. Preserve full history until the model window is nearly full.
     // A scoped system section is rewritten on each wake, never appended as repeated user-history snapshots.
-    const input=await this.modelInput(context.event,context.origin,signal)
+    let input=await this.modelInput(context.event,context.origin,signal)
+    if(context.resume&&!await this.delivery.holds(agent,context.resume.deliveryId))input=[...await this.modelInput(context.resume.event,context.origin,signal),...input]
     this.prepareSocial(context.event)
     const meter=agent.ctx.get('tokenMeter') as {measure(session:typeof agent.session):{totalTokens:number}}|undefined
     if(meter)this.onMetric('context_before_wake',agent.id,{tokens:meter.measure(agent.session).totalTokens})

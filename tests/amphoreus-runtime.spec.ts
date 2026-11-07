@@ -313,24 +313,47 @@ it('retains interrupted running work until startup publishes a reliable failure 
   await runtime.stop(); host.close()
 })
 
-it('requires an explicit retry for interrupted inference and assigns a distinct Run on retry', async () => {
+it('continues interrupted Main once in the same Session without replaying the original event or an already sent output', async () => {
   const first = open(driver(async () => {}))
   await first.runtime.start(); await first.runtime.scheduler.idle()
+  const session=first.store.runs()[0]!.session_id
   first.runtime.scheduler.stop()
   const event = (await first.runtime.receiveWeb('alice', 'chat', [{ type: 'text', text: 'hello' }], 'interrupted-main')).event
   first.store.claimEvent(role.agent_id)
-  first.store.startRun({ run_id: `run-${event.event_id}`, agent_id: role.agent_id, event_id: event.event_id, session_id: 'session', state: 'running', started_at: new Date().toISOString() })
-  first.store.setRecord('run-attempt', event.event_id, 1)
+  const oldRun=`run-${event.event_id}`
+  first.store.startRun({ run_id: oldRun, agent_id: role.agent_id, event_id: event.event_id, session_id: session, state: 'running', started_at: new Date().toISOString() })
+  await first.runtime.gateway.speak({agentId:role.agent_id,runId:oldRun,callId:'already-sent',sourceEventId:event.event_id,content:[{type:'text',text:'already sent'}],target:event},()=>true)
   await first.runtime.stop(); first.host.close()
-  const host = new Store(join(first.dir, 'test.sqlite')), store = new AmphoreusStore(host), delivered: string[] = []
-  const runtime = new AmphoreusRuntime(store, driver(async context => { delivered.push(context.runId) }), role, limits)
+  const host = new Store(join(first.dir, 'test.sqlite')), store = new AmphoreusStore(host), delivered: MainContext[] = []
+  const runtime = new AmphoreusRuntime(store, driver(async context => { delivered.push(context) }), role, limits)
   await runtime.start(); await runtime.scheduler.idle()
   expect(store.event(event.event_id)?.state).toBe('failed')
-  expect(delivered).toHaveLength(0)
-  runtime.scheduler.retry(event.event_id); await runtime.scheduler.idle()
-  expect(delivered).toEqual([`run-${event.event_id}-2`])
-  expect(store.event(event.event_id)?.state).toBe('processed')
-  await runtime.stop(); host.close()
+  expect(delivered).toHaveLength(1)
+  expect(delivered[0]).toMatchObject({event:{event_type:'main.resume'},origin:{event_id:event.event_id},sessionId:session,resume:{event:{event_id:event.event_id},deliveryId:oldRun}})
+  expect(store.outputs().filter(output=>output.status==='sent')).toHaveLength(1)
+  expect(store.run(oldRun)?.state).toBe('interrupted')
+  await runtime.stop();host.close()
+  const reopened=new Store(join(first.dir,'test.sqlite')),again=new AmphoreusStore(reopened)
+  const next=new AmphoreusRuntime(again,driver(async context=>{delivered.push(context)}),role,limits)
+  await next.start();await next.scheduler.idle();expect(delivered).toHaveLength(1)
+  await next.stop();reopened.close()
+})
+it('resumes a graceful shutdown from the most recently admitted source and respects disabled recovery',async()=>{
+ const first=open(driver(async(context,signal)=>{if(context.event.platform!=='web')return;context.admit(context.event);await new Promise<void>(resolve=>signal.addEventListener('abort',()=>resolve(),{once:true}))}))
+ await first.runtime.start();await first.runtime.scheduler.idle()
+ const event=(await first.runtime.receiveWeb('bob','chat',[{type:'text',text:'continue later'}],'graceful')).event
+ await eventually(()=>first.runtime.status().current_run!==null);await first.runtime.stop();first.host.close()
+ const host=new Store(join(first.dir,'test.sqlite')),store=new AmphoreusStore(host),contexts:MainContext[]=[]
+ const runtime=new AmphoreusRuntime(store,driver(async context=>{contexts.push(context)}),role,limits)
+ await runtime.start();await runtime.scheduler.idle();expect(contexts[0]?.origin.event_id).toBe(event.event_id)
+ await runtime.stop();host.close()
+ const paused=open(driver(async()=>{}));await paused.runtime.start();await paused.runtime.scheduler.idle();paused.runtime.scheduler.stop()
+ const pending=(await paused.runtime.receiveWeb('alice','chat',[{type:'text',text:'no restart'}],'disabled')).event
+ paused.store.claimEvent(role.agent_id);paused.store.startRun({run_id:'interrupted',agent_id:role.agent_id,event_id:pending.event_id,session_id:'main',state:'running',started_at:pending.timestamp})
+ paused.store.setRecord('runtime-settings',role.agent_id,{resumeOnRestart:false});await paused.runtime.stop();paused.host.close()
+ const disabledHost=new Store(join(paused.dir,'test.sqlite')),disabledStore=new AmphoreusStore(disabledHost),main=vi.fn(async()=>{})
+ const disabled=new AmphoreusRuntime(disabledStore,driver(main),role,limits);await disabled.start();await disabled.scheduler.idle();expect(main).not.toHaveBeenCalled()
+ await disabled.stop();disabledHost.close()
 })
 
 

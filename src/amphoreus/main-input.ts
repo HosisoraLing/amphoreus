@@ -10,6 +10,7 @@ const contentText = (blocks: ContentBlock[], accountId?: string): string => bloc
 
 /** Model-facing text only; the Gateway retains the complete event and owns reply routing. */
 export function mainInput(event: GatewayEvent, origin?: GatewayEvent): string {
+  if(event.source_kind==='internal'&&event.event_type==='main.resume')return `重启续接${origin?` · ${origin.platform}/${origin.conversation_id}`:''}\n${contentText(event.content)}`
   if (event.source_kind === 'internal' && event.task_id) {
     const reports = event.content.map(block => {
       if (block.type !== 'report') return contentText([block])

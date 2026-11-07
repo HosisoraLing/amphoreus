@@ -63,3 +63,16 @@ it('gives nightly dispatch and draft review the current Beijing diary day withou
   }
  }finally{vi.useRealTimers()}
 })
+
+it.each([true,false])('restores an undelivered input on restart only when the native Session does not hold it (%s)',async held=>{
+ const driver=new DshAgentDriver({on:vi.fn(()=>()=>{})} as never,()=>({agent_id:'role',name:'role',persona:'persona'}),'/unused',{main:null,worker:null},8)
+ const agent={id:'main',session:{},ctx:{get:()=>undefined}}
+ ;(driver as any).ensure=async()=>agent
+ const holds=vi.spyOn((driver as any).delivery,'holds').mockResolvedValue(held)
+ const run=vi.fn(async(..._args:unknown[])=>{});(driver as any).run=run
+ const input={event_id:'original',source_kind:'web',platform:'web',conversation_id:'web:owner:chat',account_id:'owner',actor_id:'owner',timestamp:'2026-11-08T00:00:00Z',metadata:{},content:[{type:'text',text:'original request'}]}
+ const event={...input,event_id:'resume',source_kind:'internal',platform:'internal',event_type:'main.resume',content:[{type:'text',text:'continue without repeating'}]}
+ await driver.main({sessionId:'main',event,origin:input,runId:'new-run',resume:{event:input,deliveryId:'old-run'}} as never,new AbortController().signal)
+ expect(holds).toHaveBeenCalledWith(agent,'old-run')
+ const content=JSON.stringify(run.mock.calls[0]?.[2]);expect(content.includes('original request')).toBe(!held);expect(content).toContain('continue without repeating')
+})

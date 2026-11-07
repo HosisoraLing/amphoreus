@@ -45,6 +45,8 @@ export class AmphoreusStore {
         CREATE INDEX IF NOT EXISTS amphoreus_run_agent ON amphoreus_run(agent_id, started_at);
       `)
       db.prepare('INSERT INTO amphoreus_meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('schema_version', String(SCHEMA_VERSION))
+      for(const row of db.prepare("SELECT run_id,agent_id,event_id FROM amphoreus_run WHERE state='running'").all())
+        this.setRecord('main-restart',String(row.run_id),row)
       db.prepare("UPDATE amphoreus_run SET state = 'interrupted', finished_at = ?, error = 'Runtime interrupted' WHERE state = 'running'").run(new Date().toISOString())
       // Recover a committed completion; ambiguous in-flight inference needs review rather than silent loss or duplicated effects.
       db.exec(`UPDATE amphoreus_event SET state='processed' WHERE state='processing' AND EXISTS

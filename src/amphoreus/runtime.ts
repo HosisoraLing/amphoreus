@@ -12,6 +12,7 @@ import { RoleControl,ControlStopped } from './control.ts'
 export interface Role { agent_id: string; name: string; persona: string }
 export interface MainContext {
   event: GatewayEvent; origin: GatewayEvent; runId: string; sessionId: string; history?: string
+  resume?:{event:GatewayEvent;deliveryId:string}
   deliveryId?: string
   channels?():{channel:string;name:string;target:OutputTarget}[]
   admit(event: GatewayEvent): void
@@ -86,6 +87,7 @@ export class AmphoreusRuntime {
     if(!this.controls.allows(event))return false
     try{
       const origin=this.origin(event)
+      if(event.source_kind==='internal'&&event.event_type==='main.resume'&&!this.permitInput(origin))return false
       return event.source_kind==='internal'&&event.task_id?this.controls.scopeEnabled(origin):this.controls.allows(origin)
     }catch{return false}
   }
@@ -135,6 +137,7 @@ export class AmphoreusRuntime {
       await this.report(task, { type: 'failed', summary: '运行时中断，任务已停止。请检查已完成的操作后决定是否重试。' }, 'interrupted')
     }
     await this.initialize()
+    await this.resumeInterrupted()
     this.started = true
     this.scheduler.start()
     for (const output of this.store.outputs(10000).filter(output => output.status === 'pending')) {
@@ -145,6 +148,27 @@ export class AmphoreusRuntime {
     }
     this.pump()
     this.recovery?.start()
+  }
+
+  /** A new continuation notice resumes the same Session; the original trigger is never retried. */
+  private async resumeInterrupted(){
+    for(const marker of this.store.records<{run_id:string;agent_id:string;event_id:string}>('main-restart')){
+      if(marker.agent_id!==this.role.agent_id)continue
+      const run=this.store.run(marker.run_id),root=this.store.event(marker.event_id)?.event
+      if(!run||!root||run.state!=='interrupted'){this.store.deleteRecord('main-restart',marker.run_id);continue}
+      const last=this.store.records<{event_id:string;run_id:string;admitted:boolean}>('main-steer').filter(item=>item.run_id===run.run_id&&item.admitted).at(-1)
+      const input=this.store.event(last?.event_id??root.event_id)?.event??root,origin=this.origin(input)
+      if(this.store.record<{resumeOnRestart?:boolean}>('runtime-settings',this.role.agent_id)?.resumeOnRestart!==false&&this.allowsInput(input)&&this.permitInput(origin)){
+        const key=`main-resume-${hash(run.run_id)}`
+        await this.gateway.ingest('internal',{agent_id:this.role.agent_id,event_id:key,source_kind:'internal',platform:'internal',account_id:this.role.agent_id,
+          conversation_id:origin.conversation_id,actor_id:this.role.agent_id,event_type:'main.resume',timestamp:new Date().toISOString(),correlation_id:run.run_id,visibility:'internal',
+          content:[{type:'text',text:'服务已重启，继续刚才中断的对话。先核实已完成的发言和操作，不重复发送或执行；若已回复完毕可直接结束。'}],
+          metadata:{origin_event_id:origin.event_id,resume_run_id:run.run_id,priority:15},idempotency_key:key},()=>{
+            this.store.setRecord('main-resume',key,this.store.record('main-resume',input.event_id)??{event_id:input.event_id,deliveryId:this.store.record<string>('main-delivery',input.event_id)??run.run_id})
+          })
+      }
+      this.store.deleteRecord('main-restart',marker.run_id)
+    }
   }
 
   private async initialize(): Promise<void> {
@@ -213,7 +237,8 @@ export class AmphoreusRuntime {
     }
     arm()
     const signal = AbortSignal.any([this.lifetime.signal, budget.signal]), steered = new Set<string>(), admitted = new Map([[event.event_id, event]])
-    const context: MainContext = { event, origin, sessionId, runId, ...(history ? { history } : {}),
+    const resume=this.store.record<{event_id:string;deliveryId:string}>('main-resume',event.event_id),resumeEvent=resume&&this.store.event(resume.event_id)?.event
+    const context: MainContext = { event, origin, sessionId, runId, ...(resume&&resumeEvent?{resume:{event:resumeEvent,deliveryId:resume.deliveryId}}:{}), ...(history ? { history } : {}),
       channels:()=>this.channels(),
       deliveryId: attempt === 1 ? this.store.record<string>('main-delivery', event.event_id) : undefined,
       collaboration: () => this.collaboration(), setCollaboration: (active, goal) => { this.setCollaboration(active, goal); arm() },
@@ -267,6 +292,7 @@ export class AmphoreusRuntime {
         for(const id of steered){const input=this.store.event(id)?.event;if(input)this.controls.suppress(input);this.store.setEventState(id,'processed')}
         return
       }
+      if(this.lifetime.signal.aborted)this.store.setRecord('main-restart',runId,{run_id:runId,agent_id:this.role.agent_id,event_id:this.store.run(runId)!.event_id})
       this.store.finishRun(runId, this.lifetime.signal.aborted ? 'interrupted' : 'failed', textError(error))
       for (const id of steered) this.store.setEventState(id, 'failed', 'Main failed during Steering; inspect before retry')
       throw error
@@ -347,6 +373,11 @@ export class AmphoreusRuntime {
   }
 
   private origin(event: GatewayEvent): GatewayEvent {
+    if(event.source_kind==='internal'&&event.event_type==='main.resume'){
+      const source=this.store.event(String(event.metadata.origin_event_id))?.event
+      if(!source||source.agent_id!==event.agent_id||source.event_type==='main.resume')throw Error('Invalid continuation origin')
+      return source
+    }
     if (event.source_kind === 'qq-observation'||event.source_kind==='qq-debounce') {
       const source = this.store.event(String(event.metadata.origin_event_id))?.event
       if (!source || source.source_kind !== 'napcat' || source.agent_id !== event.agent_id || !this.sameScope(source,event)) throw new Error('Observation origin is invalid')
