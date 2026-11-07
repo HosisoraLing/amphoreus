@@ -57,6 +57,7 @@ it.each([
   const parent = {}, preset = createScope(ctx, parent)
   register(preset.ctx, 'web_search')
   register(preset.ctx, 'memory_confirm')
+  register(preset.ctx, 'amphoreus_settings')
   register(preset.ctx, 'speak')
   register(preset.ctx, 'deja_recall')
   const session = Session.create(SessionId(role)), agent = { id: session.id, session } as Agent
@@ -74,6 +75,7 @@ it.each([
   expect((await call('session_custom')).isError).toBe(false)
   expect(custom.execute).toHaveBeenCalledOnce()
   expect((await call('memory_confirm')).isError).toBe(worker)
+  expect((await call('amphoreus_settings')).isError).toBe(worker)
   expect((await call('speak')).isError).toBe(worker)
   expect((await call('deja_recall')).isError).toBe(!worker || continuation || topic)
   // Even a tool registered directly on the Session cannot bypass role ownership.

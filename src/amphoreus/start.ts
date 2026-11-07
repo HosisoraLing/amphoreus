@@ -8,10 +8,10 @@ import { AmphoreusRuntime } from './runtime.ts'
 import { DshAgentDriver } from './dsh.ts'
 import { AmphoreusHttp } from './http.ts'
 import { QQAdapter } from './qq.ts'
-import { readConfiguration } from './config.ts'
+import { readConfiguration,AmphoreusConfig } from './config.ts'
 import { readTaskActivity } from './activity.ts'
 import { registerHarnessPanel } from './harness.ts'
-import { MemoryStore } from './memory.ts'
+import { MemoryStore,MemorySettings } from './memory.ts'
 import { MemoryArchive, type ArchiveBinding } from './archive.ts'
 import { Dreaming } from './dreaming.ts'
 import { TaskLifecycle } from './lifecycle.ts'
@@ -25,6 +25,7 @@ import { TopicOrganizer } from './topic-organizer.ts'
 import { organizerClassifier } from './topic-organizer-llm.ts'
 import { TopicThreads } from './topic-threads.ts'
 import { PeopleService } from './people.ts'
+import {manageSettings} from './settings.ts'
 import { ModelSettings } from './models.ts'
 import { MemeService } from './memes.ts'
 import { Telemetry } from './telemetry.ts'
@@ -50,7 +51,7 @@ export async function startAmphoreus(ctx: Context, stateDir: string, configPath:
     host.db.exec('PRAGMA busy_timeout=5000')
     const store = new AmphoreusStore(host)
     const role = store.record<typeof config.role>('identity', config.role.agent_id) ?? config.role
-    const memory = new MemoryStore(host, role.agent_id, config.memory)
+    const memory = new MemoryStore(host, role.agent_id, MemorySettings.parse(store.record('memory-policy',role.agent_id)??config.memory))
     new Recollection(memory).repairTopics()
     const secrets=[...config.api.tokens.map(token=>token.token),config.qq?.token??'',config.media.asr?.apiKey??'',config.delivery.mail?.token??'']
     const telemetry = new Telemetry(memory, store, secrets)
@@ -60,7 +61,8 @@ export async function startAmphoreus(ctx: Context, stateDir: string, configPath:
       const meter=ctx.get('tokenMeter') as {measure(session:unknown):{totalTokens:number}}|undefined
       return meter?.measure(session).totalTokens??null
     }
-    const driver = new DshAgentDriver(ctx, () => role, config.workspace, config.models, config.limits.mainSteps, archive, config.limits.collaborationSteps, config.limits.reviewSteps)
+    const limits=AmphoreusConfig.shape.limits.parse({...config.limits,...store.record<object>('runtime-settings',role.agent_id)})
+    const driver = new DshAgentDriver(ctx, () => role, config.workspace, config.models, limits.mainSteps, archive, limits.collaborationSteps, limits.reviewSteps)
     driver.modelSettings = new ModelSettings(ctx, store, role.agent_id, config.models)
     driver.onMetric=(kind,session,data)=>telemetry.metric(kind,session,data,archive.binding(session))
     memes=new MemeService(ctx,join(stateDir,'../../amphoreus/memes'),store,()=>driver.modelSettings!.configured('worker')??driver.modelSettings!.configured('main'),(...args)=>telemetry.auxiliary(...args,'meme'))
@@ -71,7 +73,7 @@ export async function startAmphoreus(ctx: Context, stateDir: string, configPath:
       const person=people!.store.identity(ref)
       return person?people!.store.db.prepare('SELECT ref FROM identities WHERE person_id=? ORDER BY ref').all(person.person_id).map(row=>String(row.ref)):[]
     }
-    runtime = new AmphoreusRuntime(store, driver, role, config.limits,config.delivery)
+    runtime = new AmphoreusRuntime(store, driver, role, limits,config.delivery)
     topicOrganizer=new TopicOrganizer(memory,store,organizerClassifier(ctx,()=>driver.modelSettings!.configured('worker')??driver.modelSettings!.configured('main'),(...args)=>telemetry.auxiliary(...args)))
     driver.topicOrganizer=topicOrganizer
     for(const topic of memory.recent(100000,0,'topic'))if(topic.status==='active')new TopicThreads(memory).seed(String(topic.data.topic_id))
@@ -123,6 +125,7 @@ export async function startAmphoreus(ctx: Context, stateDir: string, configPath:
     if(!qq?.blocklist)driver.media.canAdmit=event=>runtime!.controls.allows(event)
     driver.canAdmit=event=>runtime!.controls.allows(event)
     runtime.prepareOutput=async(content,target)=>driver.media!.outgoing(await memes!.outgoing(content,target.platform),[config.workspace,join(stateDir,'../../attachments'),memes!.root])
+    driver.manageSettings=input=>manageSettings(input,{runtime:runtime!,memory,presence:qq?.presence,qq:qq?.control,models:driver.modelSettings!,organizer:topicOrganizer!,memes:memes!,telemetry,steps:driver})
     api = new AmphoreusHttp(runtime, config.api, qq, (task, offset, limit) => readTaskActivity(ctx, task, offset, limit,
       secrets), memory, dreaming,driver.media,nativeFooterReader(ctx),people,driver.modelSettings,topicOrganizer,telemetry,memes)
     topicOrganizer.canRun=()=>runtime!.controls.enabled

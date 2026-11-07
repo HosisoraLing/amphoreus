@@ -1,4 +1,5 @@
 /** Isolated dsh-meme backend: scoped tools and authenticated routes, with speak as its sole output. */
+import {z} from 'zod'
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Readable } from 'node:stream'
@@ -16,6 +17,7 @@ type Row = { path:string;tag:string;caption:string;keywords:string;pack:string;p
 type Item = Row & { id:string }
 type Definition = { name:string;execute:(args:Record<string,unknown>,execution?:unknown)=>unknown }
 type Route = { path:string;handler:(req:IncomingMessage,res:ServerResponse)=>unknown }
+export const MemePreferences=z.object({promptEnabled:z.boolean().optional(),sendMode:z.enum(['auto','text','image']).optional(),sendChanceEnabled:z.boolean().optional(),sendChance:z.number().int().min(0).max(100).optional(),qqSendResize:z.boolean().optional(),qqSendEdge:z.number().int().min(64).max(4096).optional()})
 type Settings = { enabledPacks?:string[];promptEnabled?:boolean;sendMode?:string;sendChanceEnabled?:boolean;sendChance?:number;qqSendResize?:boolean;qqSendEdge?:number }
 const inside = (root:string,path:string) => {const part=relative(realpathSync(root),realpathSync(path));return !!part&&!part.startsWith('..')&&!isAbsolute(part)}
 const memeId = (path:string) => createHash('sha256').update(path).digest('hex').slice(0,24)
@@ -35,6 +37,7 @@ export class MemeService {
     private readonly model:()=>RoleModel|null,private readonly settled?:(provider:string,model:string,usage:TokenUsage|undefined,duration:number,ok:boolean)=>void){}
   get settingsFile(){return join(this.root,'settings.json')}
   settings():Settings {try{return JSON.parse(readFileSync(this.settingsFile,'utf8'))}catch{return{}}}
+  configurePreferences(raw:unknown){const patch=MemePreferences.strict().parse(raw);writeFileSync(this.settingsFile,JSON.stringify({...this.settings(),...patch},null,2),{mode:0o600});return patch}
   async start(){
     const source=await import(pathToFileURL(packagePath('vendor','dsh-meme','index.js')).href)
     const core=await import(pathToFileURL(packagePath('vendor','dsh-meme','memes.js')).href)

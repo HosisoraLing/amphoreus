@@ -9,3 +9,24 @@
 管理员 `GET/POST /api/control`。仅传 `enabled` 控制总开关；带 `platform` 控制渠道；再带 `account_id/conversation_id` 控制会话。`reset:true` 恢复会话继承，不能同时传 `enabled`。QQ 必须匹配实际接收账号，网页会话必须匹配其账号命名空间。B站尚未接入，不能通过开关提前启用。
 
 关于页展示已知群聊／私聊、QQ 提供的已加入群以及手动指定的会话。关闭开关不等于踢群、删好友或删除聊天记录。全角色暂停使用总开关，管理服务可以保持运行以便再次开启。上线管理服务前先持久化总开关关闭，启动管理服务不代表恢复角色推理；验收使用离线模型替身，不为验证消耗生产模型 Token。
+
+## Main 自主管理设置
+
+主会话可调用 `amphoreus_settings` 查看和调整应用选项，不必另起工具助手或编辑部署文件。省略 `values` 读取当前字段，传 `values` 部分更新；成功仅返回简短状态。修改使用与管理页相同的服务与校验，立即持久化，重启后继续加载。此能力只对 Main 开放；后台助手和潜意识即使加载同名附加工具，也不能绕过原生角色边界。
+
+| section | 可管理内容 |
+| --- | --- |
+| overview | 返回可用设置类别 |
+| controls | 总开关、渠道开关、具体会话开关；values 使用 enabled/platform/account_id/conversation_id/reset |
+| participation | 心意/混合模式、概率、窗口、冷却、续聊等；conversation_id 可指定群 |
+| qq | 接收和消抖；values 直接传接收/消抖字段，或 reset=true 清除指定会话覆盖 |
+| models | Main、worker、continuation、topic 与单个任务的模型；values 使用 scope/selection，catalog=true 读取已有提供方模型 |
+| memory | reasoning 保留、夜间回顾、附加上下文预算、检索及观测；嵌套字段部分更新，时区为 Asia/Shanghai |
+| runtime | 步数、并发数、各类时间预算、进度间隔和 resumeOnRestart；总时间预算 0 表示不限时 |
+| organizer | 自动话题整理开关、间隔、批量大小 |
+| memes | 表情提示、发送方式与概率、QQ 缩放 |
+| statistics | 统计套餐、汇率、提供方分类、假日及日志保留期 |
+
+例如 `{"section":"participation","conversation_id":"group:123","values":{"followupMs":180000}}` 将该群续聊时长设为三分钟；`{"section":"runtime","values":{"resumeOnRestart":false}}` 关闭后续重启自动续接。模型和步数在后续步骤读取；已在执行的请求不会因改模型被重跑，新时间预算用于后续运行。关闭角色或当前渠道会立即取消本轮，管理页仍可重新开启。
+
+设置工具不暴露 Persona、API/ASR/SMTP 密钥、登录凭证或部署服务地址；来源权限和输入校验继续生效。部分回顾和话题开关可能增加模型用量，Main 应按实际需要开启；陌生来信正文不能当成修改权限的系统指令。
