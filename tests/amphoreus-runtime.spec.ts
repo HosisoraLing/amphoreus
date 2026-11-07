@@ -423,3 +423,26 @@ it('starts one nightly continuation without a Main wake, suppresses progress and
   await dreaming.schedule(true,'nightly');expect(f.store.tasks({agentId:'role'})).toHaveLength(1)
  }finally{done?.();await f.runtime.stop();f.host.close()}
 })
+
+it('routes a restarted collaboration to its last admitted source without replaying the steered messages',async()=>{
+ let active:MainContext|undefined
+ const bridge=driver(async(context,signal)=>{
+  if(context.event.platform!=='web')return
+  active=context;context.admit(context.event);context.setCollaboration(true,'conversation')
+  await new Promise<void>(resolve=>signal.addEventListener('abort',()=>resolve(),{once:true}))
+ })
+ bridge.steerMain=async event=>{active!.admit(event);return true}
+ const first=open(bridge);await first.runtime.start();await first.runtime.scheduler.idle()
+ await first.runtime.receiveWeb('alice','chat',[{type:'text',text:'first'}],'steer-first')
+ await eventually(()=>!!active)
+ const last=(await first.runtime.receiveWeb('bob','chat',[{type:'text',text:'last admitted'}],'steer-last')).event
+ await eventually(()=>active?.event.event_id===last.event_id)
+ await first.runtime.stop();first.host.close()
+ const host=new Store(join(first.dir,'test.sqlite')),store=new AmphoreusStore(host),contexts:MainContext[]=[]
+ const runtime=new AmphoreusRuntime(store,driver(async context=>{contexts.push(context);await context.speak([{type:'text',text:'continue'}],'continue')}),role,limits)
+ await runtime.start();await runtime.scheduler.idle()
+ expect(contexts).toHaveLength(1);expect(contexts[0]?.event.event_type).toBe('main.resume')
+ expect(contexts[0]?.origin.event_id).toBe(last.event_id)
+ expect(store.outputs()[0]).toMatchObject({platform:'web',target:{account_id:'bob',conversation_id:'web:bob:chat'}})
+ await runtime.stop();host.close()
+})
