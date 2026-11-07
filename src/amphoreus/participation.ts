@@ -7,6 +7,7 @@ import type { QQSettings } from './qq.ts'
 
 export const ParticipationSettings = z.object({
   mode: z.enum(['hybrid','heart']).default('hybrid'), enabled: z.boolean().default(false),
+  followupMs:z.number().int().min(0).max(1800000).default(300000),
   probability: z.number().min(0).max(1).default(.05), windowMs: z.number().int().min(0).max(120000).default(60000),
   maxMessages: z.number().int().min(1).max(20).default(20), maxChars: z.number().int().min(100).max(32000).default(12000),
   cooldownMs: z.number().int().min(0).max(86400000).default(720000), inertiaMs: z.number().int().min(0).max(600000).default(120000),
@@ -19,7 +20,7 @@ type Batch = { id: string; ids: string[]; direct: boolean; reason: string; origi
 interface GroupState {
   group: string; name: string; pending: string[]; firstAt: number; queued?: Batch; lastBatch?: Batch;
   cooldownUntil: number; lastSpoke?: number; lastReceipt?: string; topic?: string; awaitingActor?: string;
-  engagedUntil: number; logs: { at: string; reason: string; count?: number; probability?: number; factors?: Factors }[]
+  engagedUntil: number; followupUntil?:number; followupClosedAt?:number; logs: { at: string; reason: string; count?: number; probability?: number; factors?: Factors }[]
 }
 type Factors = { batch: number; fatigue: number; share: number; time: number; engagement: number }
 export interface Vitality { used?: number; capacity?: number; reserve?: number; sleeping?: boolean; phase?: 'awake'|'drowsy'|'resting' }
@@ -72,11 +73,16 @@ export class GroupParticipation {
     const {store,role}=this.runtime
     return ParticipationSettings.parse({...store.record<object>('participation-config',role.agent_id),...(group?store.record<object>('participation-group',group):{})})
   }
+  effectiveMode(group:string){const settings=this.settings(group);return settings.mode==='hybrid'&&settings.enabled&&settings.followupMs>0&&(this.state(group).followupUntil??0)>this.now()?'heart':settings.mode}
   configure(patch:unknown,group?:string) {
     const parsed=ParticipationPatch.parse(patch),value=Object.fromEntries(Object.entries(parsed).filter(([key])=>Object.hasOwn(patch as object,key))),{store,role}=this.runtime
     if(group&&!/^group:\d+$/.test(group))throw new Error('Invalid group')
     store.setRecord(group?'participation-group':'participation-config',group??role.agent_id,
       {...store.record<object>(group?'participation-group':'participation-config',group??role.agent_id),...value})
+    if(value.mode!==undefined||value.followupMs===0||value.enabled===false){
+      this.reconcile()
+      for(const state of store.records<GroupState>('participation-state'))if(!group||state.group===group){state.followupUntil=0;state.followupClosedAt=Math.max(this.now(),state.lastSpoke??0);this.save(state)}
+    }
     this.wake();this.runtime.onChange();return this.settings(group)
   }
   private state(group:string):GroupState {
@@ -114,7 +120,9 @@ export class GroupParticipation {
   }
   /** Main may identify a topic or ask for one answer; ordinary traffic never extends this lease. */
   engage(group:string,topic?:string,awaitingActor?:string,active=true){
+    if(!active)this.reconcile()
     const state=this.state(group)
+    if(!active){state.followupUntil=0;state.followupClosedAt=Math.max(this.now(),state.lastSpoke??0);this.log(state,'followup-ended')}
     state.topic=active?topic:undefined;state.awaitingActor=active?awaitingActor:undefined
     state.engagedUntil=active?this.now()+this.settings(group).inertiaMs:0;this.save(state)
   }
@@ -139,7 +147,7 @@ export class GroupParticipation {
     const unseen=sources.filter(source=>!state.pending.includes(source.event_id)&&this.canAdmit(source)&&source.metadata.qq_receive_enabled!==false)
     if(!unseen.length)return
     if(state.lastBatch&&unseen.every(source=>state.lastBatch!.ids.includes(source.event_id))){
-      if(state.lastBatch.direct||state.lastBatch.reason==='heart'||state.queued?.id===state.lastBatch.id)await this.emit(state,state.lastBatch)
+      if(state.lastBatch.direct||['heart','followup-heart'].includes(state.lastBatch.reason)||state.queued?.id===state.lastBatch.id)await this.emit(state,state.lastBatch)
       return
     }
     const fresh=unseen.filter(source=>!state.lastBatch?.ids.includes(source.event_id))
@@ -147,13 +155,13 @@ export class GroupParticipation {
     for(const source of [...fresh].reverse())if(direct=await this.direct(source,state)){origin=source;break}
     const ordinary=fresh.filter(source=>source.metadata.bot!==true&&!settings.botIds.includes(source.actor_id))
     const incoming=(direct?fresh:ordinary).map(source=>source.event_id)
-    if(direct||settings.mode==='heart'&&settings.enabled&&incoming.length){
+    if(direct||this.effectiveMode(state.group)==='heart'&&settings.enabled&&incoming.length){
       if(state.queued&&this.runtime.store.event(state.queued.id)?.state==='queued'){
         this.runtime.store.setEventState(state.queued.id,'processed');state.pending=[...state.queued.ids,...state.pending];state.queued=undefined
       }
       let ids=[...new Set([...state.pending,...incoming])].slice(-settings.maxMessages)
       if(direct&&!ids.includes(origin.event_id))ids=[origin.event_id,...ids.slice(1)]
-      const batch=this.batch(state,ids,!!direct,direct??'heart')
+      const batch=this.batch(state,ids,!!direct,direct??(settings.mode==='hybrid'?'followup-heart':'heart'))
       if(direct)batch.origin=origin.event_id
       state.pending=[];state.firstAt=0;state.lastBatch=batch;this.log(state,batch.reason,ids.length)
       await this.emit(state,batch);return
@@ -210,8 +218,12 @@ export class GroupParticipation {
       const source=store.event(String(store.event(output.event_id)?.event.metadata.origin_event_id))?.event
       const state=this.state(output.target.conversation_id)
       if(output.status==='sent'){
-        state.lastSpoke=Date.parse(output.updated_at);state.lastReceipt=store.record<{message_id:string}>('receipt',output.output_id)?.message_id
-        if(source?.metadata.proactive===true)state.cooldownUntil=state.lastSpoke+this.settings(state.group).cooldownMs
+        const at=Date.parse(output.updated_at),settings=this.settings(state.group)
+        if(at>=(state.lastSpoke??0)){
+          state.lastSpoke=at;state.lastReceipt=store.record<{message_id:string}>('receipt',output.output_id)?.message_id
+          if(settings.mode==='hybrid'&&settings.enabled&&settings.followupMs>0&&at>(state.followupClosedAt??0))state.followupUntil=at+settings.followupMs
+          if(source?.metadata.proactive===true)state.cooldownUntil=at+settings.cooldownMs
+        }
       }
       this.log(state,`speak-${output.status}`);store.setRecord('participation-output',output.output_id,output.status)
     }
@@ -254,9 +266,9 @@ export class GroupParticipation {
       }
       if(state.queued&&!store.event(state.queued.id))await this.emit(state,state.queued)
       const settings=this.settings(state.group)
-      if(settings.mode==='heart'&&settings.enabled&&state.pending.length&&!state.queued){
-        const batch=this.batch(state,state.pending,false,'heart');state.pending=[];state.firstAt=0;state.queued=batch;state.lastBatch=batch
-        this.log(state,'heart',batch.ids.length);await this.emit(state,batch);continue
+      if(this.effectiveMode(state.group)==='heart'&&settings.enabled&&state.pending.length&&!state.queued){
+        const batch=this.batch(state,state.pending,false,settings.mode==='hybrid'?'followup-heart':'heart');state.pending=[];state.firstAt=0;state.queued=batch;state.lastBatch=batch
+        this.log(state,batch.reason,batch.ids.length);await this.emit(state,batch);continue
       }
       if(state.pending.length&&this.now()-state.firstAt>=settings.windowMs)await this.flush(state)
     }
@@ -266,8 +278,8 @@ export class GroupParticipation {
       ...this.runtime.store.events({sourceKind:'napcat',platform:'qq',accountId:this.qq.accountId,limit:10000}).filter(r=>r.event.metadata.message_type==='group').map(r=>r.event.conversation_id)])
     return {settings:this.settings(),groups:[...groups].map(group=>{
       const state=this.state(group),decision=this.decision(state)
-      return {...state,settings:this.settings(group),...decision,state:decision.reason==='sleep'||decision.reason==='fatigue'?'resting':
-        state.engagedUntil>this.now()?'engaged':state.cooldownUntil>this.now()?'cooldown':'observing'}
+      return {...state,settings:this.settings(group),effective_mode:this.effectiveMode(group),...decision,state:decision.reason==='sleep'||decision.reason==='fatigue'?'resting':
+        this.effectiveMode(group)==='heart'&&this.settings(group).mode==='hybrid'?'following-up':state.engagedUntil>this.now()?'engaged':state.cooldownUntil>this.now()?'cooldown':'observing'}
     })}
   }
   delivery(event:GatewayEvent){

@@ -88,7 +88,7 @@ it('leaves private debounce on the direct Main path while group participation is
 
 it('applies cooldown and fatigue after group debounce while a direct mention still bypasses ordinary suppression',async()=>{
  const f=await withDebounce(async context=>{if(context.event.platform==='qq')await context.speak([{type:'text',text:'回答'}],'speak')})
- f.presence.configure({mode:'hybrid',probability:1,windowMs:0});await f.presence.idle()
+ f.presence.configure({mode:'hybrid',probability:1,windowMs:0,followupMs:0});await f.presence.idle()
  await f.ingest();f.advance(10001);await f.flush();expect(f.contexts).toHaveLength(1)
  expect(f.presence.status().groups[0]!.cooldownUntil).toBeGreaterThan(f.now())
  await f.ingest();f.advance(10001);await f.flush();expect(f.contexts).toHaveLength(1)
@@ -151,7 +151,7 @@ it('heart mode bypasses chance and cooldown for every modality, persists across 
 
 it('allows genuine mentions and replies during cooldown, but does not treat names or unrelated chatter as direct',async()=>{
   const f=await open(async context=>{if(context.event.platform==='qq')await context.speak([{type:'text',text:'回答'}],'speak')})
-  f.presence.configure({windowMs:0})
+  f.presence.configure({windowMs:0,followupMs:0})
   await f.ingest();await f.settle();const count=f.contexts.length
   await f.ingest([{type:'text',data:{text:'角色这个名字很好听'}}]);await f.settle();expect(f.contexts).toHaveLength(count)
   await f.ingest([{type:'at',data:{qq:'123'}}]);await f.settle();expect(f.contexts).toHaveLength(count+1)
@@ -200,7 +200,7 @@ it('bounds ordinary queues while Main is busy and lets direct interaction overta
 
 it('uses actual successful output counts to pause at fifty percent, while genuine mentions remain available',async()=>{
   const f=await open(async context=>{if(context.event.platform==='qq')await context.speak([{type:'text',text:'回答'}],'speak')})
-  f.presence.configure({windowMs:0})
+  f.presence.configure({windowMs:0,followupMs:0})
   for(let i=0;i<10;i++){await f.ingest([{type:'at',data:{qq:'123'}}]);await f.settle()}
   expect(f.presence.status().groups[0]?.stats.share).toBe(.5)
   await f.ingest();await f.settle();expect(f.contexts).toHaveLength(10)
@@ -214,4 +214,34 @@ it('recovers a committed batch if the source cursor was not advanced, without re
   f.store.setRecord('participation-cursor','role',position-1)
   await f.restart();await f.settle()
   expect(f.random).toHaveBeenCalledTimes(1);expect(f.contexts).toHaveLength(1)
+})
+
+it('enters per-group temporary heart mode only after a successful reply and persists or ends the lease without changing hybrid settings',async()=>{
+ let answer=true
+ const f=await open(async context=>{if(answer&&context.event.source_kind!=='genesis')await context.speak([{type:'text',text:'继续聊'}],'reply')})
+ f.presence.configure({mode:'hybrid',probability:0,windowMs:0,followupMs:300000});await f.presence.idle()
+ await f.ingest([{type:'at',data:{qq:'123'}}]);await f.settle();answer=false
+ expect(f.presence.settings('group:456').mode).toBe('hybrid')
+ expect(f.presence.effectiveMode('group:456')).toBe('heart')
+ expect(f.presence.effectiveMode('group:999')).toBe('hybrid')
+ await f.ingest([{type:'image',data:{url:'https://media.test/followup.gif'}}]);await f.settle()
+ expect(f.contexts).toHaveLength(2)
+ expect(f.contexts[1]!.event.metadata.participation_reason).toBe('followup-heart')
+ await f.restart();expect(f.presence.effectiveMode('group:456')).toBe('heart')
+ f.presence.engage('group:456',undefined,undefined,false)
+ expect(f.presence.effectiveMode('group:456')).toBe('hybrid')
+ await f.restart();await f.ingest();await f.settle();expect(f.contexts).toHaveLength(2)
+ answer=true;await f.ingest([{type:'at',data:{qq:'123'}}]);await f.settle();answer=false
+ expect(f.presence.effectiveMode('group:456')).toBe('heart')
+ f.advance(f.presence.status().groups[0]!.followupUntil!-f.now()+1);await f.presence.tick();expect(f.presence.effectiveMode('group:456')).toBe('hybrid')
+ f.presence.configure({mode:'heart'});f.presence.engage('group:456',undefined,undefined,false)
+ expect(f.presence.effectiveMode('group:456')).toBe('heart')
+})
+it('does not activate temporary heart mode for failed sends or when followup is disabled',async()=>{
+ const f=await open(async context=>{if(context.event.source_kind!=='genesis')await context.speak([{type:'text',text:'reply'}],'reply')})
+ vi.mocked(f.qq.send).mockResolvedValue({status:'failed',error:'offline'} as never)
+ await f.ingest([{type:'at',data:{qq:'123'}}]);await f.settle()
+ expect(f.presence.effectiveMode('group:456')).toBe('hybrid')
+ f.presence.configure({followupMs:0});vi.mocked(f.qq.send).mockResolvedValue({status:'sent',receipt:{message_id:'new',account_id:'123'}})
+ await f.ingest([{type:'at',data:{qq:'123'}}]);await f.settle();expect(f.presence.effectiveMode('group:456')).toBe('hybrid')
 })

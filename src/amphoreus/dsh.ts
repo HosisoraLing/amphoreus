@@ -119,7 +119,7 @@ export class DshAgentDriver implements AgentDriver {
   }
   private async modelInput(event: MainContext['event'], origin: MainContext['origin'], signal: AbortSignal): Promise<ModelBlock[]> {
     if (!this.media || event.source_kind === 'internal') return [{ type: 'text', text: mainInput(event, origin) }]
-    return this.media.inbox(event, signal, this.presence?.settings(event.conversation_id).mode==='hybrid')
+    return this.media.inbox(event, signal, this.presence?.effectiveMode(event.conversation_id)==='hybrid')
   }
   /** Native Session/preset tools remain extensible; only Amphoreus role capabilities and Deja keep their boundaries. */
   private scopeTools(agent: Agent, worker: boolean, continuation: boolean, topic: boolean, signal: AbortSignal): (() => void)[] {
@@ -349,7 +349,7 @@ export class DshAgentDriver implements AgentDriver {
     active.expected.set(`dsh-amphoreus:${context.deliveryId ?? context.runId}`, { event: context.event, origin: context.origin })
     const reviewPrompt=isMemoryReview(context.event)?`\n内部回顾：今天是${this.archive?.memory.today()??new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai'}).format(new Date())}（北京时间）。正式日记用今天日期，较早经历标明发生日；旧日记不改。潜意识已在后台整理，直接审阅回传候选；需补充则联系原分支，勿另起重复回顾。勿对外发言。` : ''
     try { await this.run(agent, context.deliveryId ?? context.runId,
-      input, MAIN_PROMPT+reviewPrompt+(reviewPrompt?'':this.memes?.guidance(context.event.event_id)??''), false, signal, agent => [
+      input, MAIN_PROMPT+reviewPrompt+(context.origin.platform==='qq'&&this.presence?.settings(context.origin.conversation_id).mode==='hybrid'&&this.presence.effectiveMode(context.origin.conversation_id)==='heart'?'\n本群临时心意续聊中，话题结束请调用group_participation(active=false)。':'')+(reviewPrompt?'':this.memes?.guidance(context.event.event_id)??''), false, signal, agent => [
       ...this.memoryTools(agent),
       ...(this.memes?[
         this.register(agent,'send_meme','选表情，不直接发送。将候选content交speak，禁止贴路径或[表情]标记。',z.object({query:z.string().max(200).default(''),tag:z.string().max(40).default(''),limit:z.number().int().min(1).max(8).default(3)}).strict(),args=>this.memes!.search(args.query,args.tag,args.limit)),
@@ -358,7 +358,7 @@ export class DshAgentDriver implements AgentDriver {
         this.register(agent,'meme_update','按表情id修改分类、描述或关键词，不删除。',z.object({id:z.string().regex(/^[a-f0-9]{24}$/),tag:z.string().regex(/^[a-z0-9_-]+$/).optional(),caption:z.string().max(200).optional(),keywords:z.string().max(200).optional()}).strict(),({id,...args})=>this.memes!.update(id,args)),
       ]:[]),
       ...this.peopleTools(agent,()=>context.origin,true),
-      ...(this.presence ? [this.register(agent,'group_participation','标记正在参与的话题，或明确向一位群友提问并等待一次回答。普通聊天不会延长参与。active=false退出。',
+      ...(this.presence ? [this.register(agent,'group_participation','标记话题或等待一位群友回答。混合模式成功发言后临时心意续聊；话题结束时active=false立即退出续聊，恢复混合调度。',
         z.object({topic_id:z.string().optional(),awaiting_actor_id:z.string().optional(),active:z.boolean().default(true)}).strict(),args=>{
           if(context.origin.platform!=='qq'||context.origin.metadata.message_type!=='group')throw new Error('Not a group message')
           this.presence!.engage(context.origin.conversation_id,args.topic_id,args.awaiting_actor_id,args.active);return {status:'updated'}
@@ -394,7 +394,7 @@ export class DshAgentDriver implements AgentDriver {
     ]) } finally { disposeRecent(); off(); if (this.mainActive === active) this.mainActive = undefined }
   }
   private prepareSocial(event:MainContext['event']){
-    this.social?.prepare(event,this.presence?.settings(event.conversation_id).mode??'heart',source=>this.socialAllowed(source))
+    this.social?.prepare(event,this.presence?.effectiveMode(event.conversation_id)??'heart',source=>this.socialAllowed(source))
   }
   private socialAllowed(source:MainContext['event']){
     return this.canAdmit(source)&&(source.platform!=='qq'||this.qqControl?.enabled(source.conversation_id)!==false)&&this.blocklist?.allowed(source)!==false

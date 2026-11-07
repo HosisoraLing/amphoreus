@@ -42,7 +42,7 @@ labels.resolved = '已处理'
 labels.legacy_history='旧版原文'
 Object.assign(labels,{admitted:'已送达角色',buffering:'等待观察',scheduled:'等待主 Agent',archived:'仅归档',
   'probability-miss':'本批未唤醒','observation-only':'仅归档',cooldown:'主动冷却',fatigue:'休息',sleep:'睡眠',
-  'speech-share':'发言占比抑制','other-bot':'其他机器人',observing:'围观',engaged:'参与中',resting:'休息',
+  'speech-share':'发言占比抑制','other-bot':'其他机器人',observing:'围观',engaged:'参与中','following-up':'心意续聊','followup-heart':'心意续聊','followup-ended':'话题已结束',resting:'休息',
   'direct-mention':'明确 @','direct-reply':'回复角色','direct-answer':'等待中的回答',heart:'心意模式',hybrid:'混合调度',
   'main-silent':'观察后保持沉默','main-spoke':'已发言','main-failed':'观察失败','speak-sent':'发送成功','speak-failed':'发送失败','speak-unknown':'发送结果未知'})
 const failureText = text => ({
@@ -787,7 +787,7 @@ function participationForm(settings,group) {
   const select=node('select');for(const [value,title] of [['hybrid','混合调度'],['heart','心意模式']]){const option=node('option',title);option.value=value;select.append(option)}
   select.value=settings.mode;const mode=node('label','参与模式');mode.append(select);form.append(mode);fields.mode=()=>select.value
   const numbers=[['probability','基础概率（%）',100,0,100],['windowMs','观察窗口（秒）',.001,0,120],['maxMessages','每批消息上限',1,1,20],
-    ['cooldownMs','主动冷却（分钟）',1/60000,0,1440],['inertiaMs','参与惯性（秒）',.001,0,600],['shareHigh','较高占比（%）',100,20,50],['shareStop','暂停占比（%）',100,35,100]]
+    ['cooldownMs','主动冷却（分钟）',1/60000,0,1440],['inertiaMs','参与惯性（秒）',.001,0,600],['followupMs','回复后心意续聊（分钟，0关闭）',1/60000,0,30],['shareHigh','较高占比（%）',100,20,50],['shareStop','暂停占比（%）',100,35,100]]
   for(const [key,title,scale,min,max] of numbers){const label=node('label',title),input=node('input');input.type='number';input.min=min;input.max=max;input.step='any';input.value=settings[key]*scale;label.append(input);form.append(label);fields[key]=()=>Number(input.value)/scale}
   for(const [key,title] of [...(group?[['enabled','启用这个群的自主参与']]:[]),['fatigue','随精力减少主动参与'],['sleep','睡眠时停止普通唤醒']]){
     const label=node('label',undefined,'check'),input=node('input');input.type='checkbox';input.checked=settings[key];label.append(input,document.createTextNode(title));form.append(label);fields[key]=()=>input.checked
@@ -804,9 +804,9 @@ async function refreshParticipation(){
   $('participation-groups').replaceChildren()
   for(const group of status.groups){
     const card=node('article',undefined,'panel'),summary=node('p',`${group.name} · ${group.group}`)
-    summary.append(badge(group.settings.mode),badge(group.state));card.append(summary)
+    summary.append(badge(group.effective_mode||group.settings.mode),badge(group.state));card.append(summary)
     card.append(node('p',`缓冲 ${group.pending.length} 条 · 有效概率 ${(group.probability*100).toFixed(2)}% · 最近发言占比 ${(group.stats.share*100).toFixed(0)}% · 上下文 ${group.usage===undefined?'接口未提供':(group.usage*100).toFixed(1)+'%'}`),
-      node('p',`最近发言 ${time(group.lastSpoke)} · 冷却截止 ${time(group.cooldownUntil||undefined)} · 话题 ${group.topic||'未标记'}`))
+      node('p',`最近发言 ${time(group.lastSpoke)} · 冷却截止 ${time(group.cooldownUntil||undefined)} · 话题 ${group.topic||'未标记'}${group.effective_mode==='heart'&&group.settings.mode==='hybrid'?` · 心意续聊至 ${time(group.followupUntil)}`:''}`))
     const factors=group.factors;card.append(node('small',`批次 ${factors.batch.toFixed(3)} × 精力 ${factors.fatigue} × 占比 ${factors.share} × 昼夜 ${factors.time} × 话题 ${factors.engagement}`))
     const details=node('details');details.append(node('summary','这个群的设置'),participationForm(group.settings,group.group));card.append(details)
     const logs=node('details');logs.append(node('summary','最近参与记录'))
