@@ -161,3 +161,11 @@ it('times out an unavailable API without replacing the active route and does not
  expect(await pending).toMatchObject({status:'rolled_back'})
  expect(settings.configured('main')).toMatchObject({model:'admin-new'})
 })
+
+it('tests an explicit route without requiring an initialized global default model',async()=>{
+ const {ctx,settings}=await setup(),stream=vi.fn(probeChunks);Object.assign(ctx.llm,{stream})
+ const readDefault=vi.fn(()=>{throw Error('No global selection')})
+ Object.assign(ctx.get('agentDefaultModel') as object,{currentSelection:readDefault})
+ expect(await settings.configureTested({scope:'main',selection:{provider:'api',model:'standalone'}})).toEqual({status:'updated'})
+ expect(readDefault).not.toHaveBeenCalled();expect(stream).toHaveBeenCalledOnce()
+})

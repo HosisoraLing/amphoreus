@@ -54,10 +54,9 @@ export class ModelSettings {
     const assembler=new BlockAssembler(),started=Date.now();let selected:ModelSelection|undefined,ok=false
     try{
       const selection=await this.prepare(input)
-      const inherited=(input.task_id?this.configured(input.scope):null)
+      selected=selection??await resolveRoleModel(this.ctx,(input.task_id?this.configured(input.scope):null)
         ??(['continuation','topic'].includes(input.scope)?this.configured('main'):null)
-        ??(this.ctx.get('agentDefaultModel') as {currentSelection():ModelSelection}).currentSelection()
-      selected=selection??await resolveRoleModel(this.ctx,inherited)
+        ??(this.ctx.get('agentDefaultModel') as {currentSelection():ModelSelection}).currentSelection())
       const signal=AbortSignal.timeout(30000)
       for await(const chunk of this.ctx.llm.stream({...selected,maxTokens:64,signal,messages:[{role:'user',content:[{type:'text',text:'Reply OK.'}]}]}))assembler.push(chunk)
       signal.throwIfAborted()
