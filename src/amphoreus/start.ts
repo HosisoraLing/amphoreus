@@ -64,6 +64,7 @@ export async function startAmphoreus(ctx: Context, stateDir: string, configPath:
     const limits=AmphoreusConfig.shape.limits.parse({...config.limits,...store.record<object>('runtime-settings',role.agent_id)})
     const driver = new DshAgentDriver(ctx, () => role, config.workspace, config.models, limits.mainSteps, archive, limits.collaborationSteps, limits.reviewSteps)
     driver.modelSettings = new ModelSettings(ctx, store, role.agent_id, config.models)
+    driver.modelSettings.onProbe=(selected,usage,duration,ok,scope)=>telemetry.auxiliary(selected.provider,selected.model,usage,duration,ok,scope,'model-test')
     driver.onMetric=(kind,session,data)=>telemetry.metric(kind,session,data,archive.binding(session))
     memes=new MemeService(ctx,join(stateDir,'../../amphoreus/memes'),store,()=>driver.modelSettings!.configured('worker')??driver.modelSettings!.configured('main'),(...args)=>telemetry.auxiliary(...args,'meme'))
     await memes.start();driver.memes=memes

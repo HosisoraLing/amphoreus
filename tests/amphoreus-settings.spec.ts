@@ -24,7 +24,7 @@ function setup(){
  const qq=new QQControl(runtime,'123'),organizer=new TopicOrganizer(memory,store,async()=>({groups:[]}))
  const memes=new MemeService({} as never,join(dir,'memes'),store,()=>null);mkdirSync(memes.root)
  writeFileSync(memes.settingsFile,JSON.stringify({sendMode:'auto',privateRemoteToken:'never-return-this',sendChance:30}))
- const steps={mainSteps:8,collaborationSteps:60,reviewSteps:16},models={configure:vi.fn(async()=>{}),status:vi.fn(async()=>({roles:{}})),catalog:vi.fn(async()=>({groups:[]}))}
+ const steps={mainSteps:8,collaborationSteps:60,reviewSteps:16},models={configureTested:vi.fn(async()=>({status:'updated',message:''})),status:vi.fn(async()=>({roles:{}})),catalog:vi.fn(async()=>({groups:[]}))}
  const services={runtime,memory,presence,qq,organizer,memes,telemetry:new Telemetry(memory,store),steps,models:models as never}
  clean.push(()=>{host.close();rmSync(dir,{recursive:true,force:true})});clean.push(()=>presence.stop());clean.push(()=>qq.stop())
  return{...services,models,dir,host,store,call:(input:Parameters<typeof manageSettings>[0])=>manageSettings(input,services)}
@@ -46,7 +46,7 @@ it('updates shared application settings partially, persists policy and limits, a
  expect(f.runtime.limits).toMatchObject({maxWorkers:4,mainTimeoutMs:0})
  expect(f.steps.mainSteps).toBe(12);expect(f.store.record('runtime-settings','role')).toMatchObject({resumeOnRestart:false,maxWorkers:4})
  await f.call({section:'models',values:{scope:'worker',selection:{provider:'known',model:'coding'}}})
- expect(f.models.configure).toHaveBeenCalledWith({scope:'worker',selection:{provider:'known',model:'coding'}})
+ expect(f.models.configureTested).toHaveBeenCalledWith({scope:'worker',selection:{provider:'known',model:'coding'}})
  await f.call({section:'memes',values:{sendMode:'text',sendChanceEnabled:true}})
  expect(f.memes.settings()).toMatchObject({sendMode:'text',sendChance:30,privateRemoteToken:'never-return-this'})
  expect(JSON.stringify(await f.call({section:'memes'}))).not.toContain('never-return-this')
@@ -73,4 +73,11 @@ it('registers the settings capability only on Main using plain JSON tool paramet
  const tool=registered.get('amphoreus_settings');expect(tool).toBeDefined()
  await tool.execute(SettingsInput.parse({section:'runtime',values:{resumeOnRestart:false}}))
  expect(driver.manageSettings).toHaveBeenCalledWith(expect.objectContaining({section:'runtime',values:{resumeOnRestart:false}}))
+})
+
+it('returns the model API rollback receipt directly instead of reporting a successful settings update',async()=>{
+ const f=setup()
+ f.models.configureTested.mockResolvedValueOnce({status:'rolled_back',message:'模型API测试失败，已回退'})
+ expect(await f.call({section:'models',values:{scope:'main',selection:{provider:'known',model:'unavailable'}}})).toEqual({status:'rolled_back',message:'模型API测试失败，已回退'})
+ expect(f.store.record('settings-change','role:models')).toBeUndefined()
 })

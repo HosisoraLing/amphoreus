@@ -100,3 +100,64 @@ it('changes a resumed or forked session on the next assembled step, keeps retrie
     expect(session.requestHeader()?.config.model).toBe('old-header')
   } finally { dispose(); disposeNative() }
 })
+
+const probeChunks=async function*(_options:unknown){
+ yield{type:'block-start',blockType:'text',index:0}
+ yield{type:'block-end',index:0,block:{type:'text',text:'OK'}}
+ yield{type:'finish',finish:{kind:'stop'}}
+}
+it('probes a short isolated API call before committing a role or task route and preserves the global default',async()=>{
+ const {ctx,settings,task,saveSelection}=await setup(),stream=vi.fn(probeChunks),settled=vi.fn()
+ Object.assign(ctx.llm,{stream});settings.onProbe=settled
+ task('worker-task','worker')
+ for(const input of [{scope:'main' as const,selection:{provider:'api',model:'tested',reasoningEffort:'high'}},{scope:'worker' as const,task_id:'worker-task',selection:{provider:'api',model:'coding'}}])
+  expect(await settings.configureTested(input)).toEqual({status:'updated'})
+ const request=stream.mock.calls[0]![0] as any
+ expect(request).toMatchObject({provider:'api',model:'tested',reasoningEffort:'high',maxTokens:64,messages:[{role:'user',content:[{type:'text',text:'Reply OK.'}]}]})
+ expect(request.tools).toBeUndefined();expect(request.messages).toHaveLength(1)
+ expect(await settings.resolve('main')).toMatchObject({model:'tested'})
+ expect(await settings.resolve('worker','worker-task')).toMatchObject({model:'coding'})
+ expect(settled).toHaveBeenCalledTimes(2);expect(settled.mock.calls[0]?.[3]).toBe(true)
+ expect(saveSelection).not.toHaveBeenCalled()
+})
+it('returns rolled back on validation, transport, empty or failed completion without creating or overwriting an override',async()=>{
+ const {ctx,settings,store}=await setup(),stream=vi.fn(probeChunks);Object.assign(ctx.llm,{stream})
+ expect((await settings.configureTested({scope:'main',selection:{provider:'api',model:'bad'}})).status).toBe('rolled_back')
+ expect(stream).not.toHaveBeenCalled()
+ expect(settings.configured('main')).toMatchObject({model:'main-old'})
+ expect(store.record('model-route',JSON.stringify(['role','main',null]))).toBeUndefined()
+ await settings.configure({scope:'worker',selection:null})
+ for(const impl of [async function*(){throw Error('secret-token-in-provider-error');yield{}},async function*(){yield{type:'finish',finish:{kind:'stop'}}},async function*(){yield{type:'finish',finish:{kind:'error',error:'private-key'}}}]){
+  stream.mockImplementationOnce(impl as never)
+  const result=await settings.configureTested({scope:'worker',selection:{provider:'api',model:'broken-api'}})
+  expect(result).toMatchObject({status:'rolled_back',message:expect.stringContaining('已回退')})
+  expect(JSON.stringify(result)).not.toMatch(/secret-token|private-key/)
+  expect(store.record('model-route',JSON.stringify(['role','worker',null]))).toEqual({selection:null})
+ }
+})
+it('tests the effective inherited route when resetting a task override',async()=>{
+ const {ctx,settings,task}=await setup(),stream=vi.fn(probeChunks);Object.assign(ctx.llm,{stream})
+ task('branch','continuation')
+ await settings.configure({scope:'continuation',task_id:'branch',selection:{provider:'api',model:'task-old'}})
+ expect(await settings.configureTested({scope:'continuation',task_id:'branch',selection:null})).toEqual({status:'updated'})
+ expect(stream.mock.calls[0]?.[0]).toMatchObject({model:'main-old'})
+ expect(settings.configured('continuation','branch')).toBeNull()
+})
+it('times out an unavailable API without replacing the active route and does not overwrite a newer administrator choice',async()=>{
+ const {ctx,settings}=await setup(),controller=new AbortController()
+ const timeout=vi.spyOn(AbortSignal,'timeout').mockReturnValue(controller.signal)
+ let entered!:()=>void;const ready=new Promise<void>(resolve=>{entered=resolve})
+ Object.assign(ctx.llm,{stream:async function*(options:any){entered();await new Promise<void>((_resolve,reject)=>options.signal.addEventListener('abort',()=>reject(options.signal.reason),{once:true}));yield{type:'finish',finish:{kind:'stop'}}}})
+ try{
+  const pending=settings.configureTested({scope:'main',selection:{provider:'api',model:'unavailable'}})
+  await ready;expect(settings.configured('main')).toMatchObject({model:'main-old'})
+  controller.abort(Error('timeout'));expect(await pending).toMatchObject({status:'rolled_back',message:expect.stringContaining('已回退')})
+  expect(timeout).toHaveBeenCalledWith(30000)
+ }finally{timeout.mockRestore()}
+ let finish!:()=>void;const released=new Promise<void>(resolve=>{finish=resolve});let started!:()=>void;const probeStarted=new Promise<void>(resolve=>{started=resolve})
+ Object.assign(ctx.llm,{stream:async function*(options:unknown){started();await released;yield*probeChunks(options)}})
+ const pending=settings.configureTested({scope:'main',selection:{provider:'api',model:'agent-proposal'}})
+ await probeStarted;await settings.configure({scope:'main',selection:{provider:'api',model:'admin-new'}});finish()
+ expect(await pending).toMatchObject({status:'rolled_back'})
+ expect(settings.configured('main')).toMatchObject({model:'admin-new'})
+})

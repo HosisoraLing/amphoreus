@@ -52,7 +52,7 @@ export async function manageSettings(raw:z.input<typeof SettingsInput>,services:
    else result=qq!.settings(input.conversation_id)
    break
   case 'models':
-   if(values)await models.configure(ModelInput.parse({...values,...(input.task_id?{task_id:input.task_id}:{})}))
+   if(values){const changed=await models.configureTested(ModelInput.parse({...values,...(input.task_id?{task_id:input.task_id}:{})}));if(changed.status==='rolled_back')return changed}
    else result=input.catalog?await models.catalog():await models.status(input.task_id)
    break
   case 'memory':

@@ -113,3 +113,13 @@ it('detects stale derived indices and dangling evidence, deduplicates alerts and
  memory.update(candidate.id,{data:{source_ids:[]}});memory.rebuildSearch();f.telemetry.audit(true)
  expect(f.telemetry.health().alerts).toHaveLength(0)
 })
+
+it('accounts for isolated model API tests under their selected agent scope without counting a new activation',()=>{
+ const {telemetry}=fixture()
+ telemetry.auxiliary('opencode-go','kimi-k3',{inputTokens:4,outputTokens:2},25,true,'worker','model-test')
+ const stats=telemetry.statistics()
+ expect(stats.total.total).toBe(6)
+ expect(stats.roles.find(role=>role.scope==='worker')?.total).toBe(6)
+ expect(stats.activations.total).toBe(0)
+ expect(telemetry.logs({}).items[0]).toMatchObject({session:'model-api-test',scope:'worker',summary:'模型API连通测试'})
+})

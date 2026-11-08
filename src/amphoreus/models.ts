@@ -1,6 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, ModelSelection } from '@deepseek-ai/dsh-agent'
 import { z } from 'zod'
+import {BlockAssembler,type TokenUsage} from '@deepseek-ai/dsh-llm'
 import { resolveRoleModel } from '../app/role-models.ts'
 import type { AmphoreusStore } from './store.ts'
 
@@ -13,6 +14,7 @@ type Defaults = { main: Route | null; worker: Route | null; continuation?: Route
 
 /** Role-local routes; never call selectModel(), which also changes DSH's global default. */
 export class ModelSettings {
+  onProbe?:(selection:ModelSelection,usage:TokenUsage|undefined,duration:number,ok:boolean,scope:ModelScope)=>void
   constructor(readonly ctx: Context, readonly store: AmphoreusStore, readonly roleId: string, readonly defaults: Defaults) {}
   private key(scope: ModelScope, taskId?: string) { return JSON.stringify([this.roleId, scope, taskId ?? null]) }
   configured(scope: ModelScope, taskId?: string): Route | null {
@@ -31,15 +33,42 @@ export class ModelSettings {
       ?? (this.ctx.get('agentDefaultModel') as { currentSelection(): ModelSelection }).currentSelection()
     return resolveRoleModel(this.ctx, selection)
   }
-  async configure(input: z.infer<typeof ModelInput>) {
-    this.task(input.scope, input.task_id)
+  private async prepare(input:z.infer<typeof ModelInput>){
     let selection: ModelSelection | null = null
     if (input.selection) {
       if (!this.ctx.llm.listProviders().some(provider => provider.id === input.selection!.provider)) throw new Error('提供方不可用，请检查 DSH 模型配置')
       try { selection = await resolveRoleModel(this.ctx, input.selection) }
       catch { throw new Error('模型或推理强度不可用，请检查 DSH 模型配置') }
     }
-    this.store.setRecord('model-route', this.key(input.scope, input.task_id), { selection })
+    return selection
+  }
+  async configure(input: z.infer<typeof ModelInput>) {
+    this.task(input.scope,input.task_id)
+    const selection=await this.prepare(input)
+    this.store.setRecord('model-route',this.key(input.scope,input.task_id),{selection})
+  }
+  /** Probe a proposal without exposing an untested route to active Sessions. */
+  async configureTested(input:z.infer<typeof ModelInput>){
+    this.task(input.scope,input.task_id)
+    const key=this.key(input.scope,input.task_id),before=JSON.stringify(this.store.record('model-route',key))
+    const assembler=new BlockAssembler(),started=Date.now();let selected:ModelSelection|undefined,ok=false
+    try{
+      const selection=await this.prepare(input)
+      const inherited=(input.task_id?this.configured(input.scope):null)
+        ??(['continuation','topic'].includes(input.scope)?this.configured('main'):null)
+        ??(this.ctx.get('agentDefaultModel') as {currentSelection():ModelSelection}).currentSelection()
+      selected=selection??await resolveRoleModel(this.ctx,inherited)
+      const signal=AbortSignal.timeout(30000)
+      for await(const chunk of this.ctx.llm.stream({...selected,maxTokens:64,signal,messages:[{role:'user',content:[{type:'text',text:'Reply OK.'}]}]}))assembler.push(chunk)
+      signal.throwIfAborted()
+      if(!['stop','max-tokens'].includes(assembler.finish.kind)||!assembler.blocks().some(block=>(block.type==='text'||block.type==='reasoning')&&block.text.trim()))throw Error('Model probe failed')
+      ok=true
+      if(JSON.stringify(this.store.record('model-route',key))!==before)return{status:'rolled_back',message:'设置已被更新，已回退；保留当前配置。'}
+      this.store.setRecord('model-route',key,{selection})
+      return{status:'updated'}
+    }catch{
+      return{status:'rolled_back',message:'模型API测试失败或超时，已回退，继续使用原配置。'}
+    }finally{if(selected)this.onProbe?.(selected,assembler.usage,Date.now()-started,ok,input.scope)}
   }
   async status(taskId?: string) {
     const view = async (scope: ModelScope, id?: string) => {

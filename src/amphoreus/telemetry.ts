@@ -141,9 +141,9 @@ export class Telemetry {
     }
     state.offset = Number(event.seq) + 1; this.store.setRecord('statistics-native', id, state)
   }
-  auxiliary(provider: string, model: string, usage: TokenUsage | undefined, duration: number, ok: boolean, scope: Scope = 'organizer') {
-    this.write({ id: randomUUID(), at: this.now().toISOString(), session: scope==='meme'?'meme-learning':'topic-organizer', scope, provider, model, kind: 'usage',
-      level: ok ? 'info' : 'warn', summary: scope==='meme'?'表情图片识别请求':'后台话题整理请求', data: { ...(usage ? usageOf(usage) : {}), usage_available: !!usage, duration_ms: duration, attempt: !ok } }, true)
+  auxiliary(provider: string, model: string, usage: TokenUsage | undefined, duration: number, ok: boolean, scope: Scope = 'organizer',purpose?:'model-test') {
+    this.write({ id: randomUUID(), at: this.now().toISOString(), session: purpose==='model-test'?'model-api-test':scope==='meme'?'meme-learning':'topic-organizer', scope, provider, model, kind: 'usage',
+      level: ok ? 'info' : 'warn', summary: purpose==='model-test'?'模型API连通测试':scope==='meme'?'表情图片识别请求':'后台话题整理请求', data: { ...(usage ? usageOf(usage) : {}), usage_available: !!usage, duration_ms: duration, attempt: !ok } }, true)
   }
   async backfill(ctx: Context, bindings: ArchiveBinding[]) {
     for (const binding of bindings) {
