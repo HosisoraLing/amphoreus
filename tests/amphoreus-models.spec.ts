@@ -6,6 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { agentEvents, installModelSelection, type Agent, type ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
+import {createUserMessage} from '@deepseek-ai/dsh-llm'
 import { Store } from '../src/app/store.ts'
 import { AmphoreusStore } from '../src/amphoreus/store.ts'
 import { installRoleRouting, ModelSettings } from '../src/amphoreus/models.ts'
@@ -168,4 +169,48 @@ it('tests an explicit route without requiring an initialized global default mode
  Object.assign(ctx.get('agentDefaultModel') as object,{currentSelection:readDefault})
  expect(await settings.configureTested({scope:'main',selection:{provider:'api',model:'standalone'}})).toEqual({status:'updated'})
  expect(readDefault).not.toHaveBeenCalled();expect(stream).toHaveBeenCalledOnce()
+})
+
+it.each(['console','agent-success','agent-failed'] as const)('preserves an in-flight stream and Session history while switching through %s',async mode=>{
+ const {ctx,settings,saveSelection}=await setup()
+ const session=Session.create(SessionId(`stream-switch-${mode}`)),controller=new AbortController()
+ const cancel=vi.fn(()=>controller.abort(Error('unexpected cancellation'))),agent={ctx,session,cancel} as unknown as Agent
+ session.append('user/message',createUserMessage({content:[{type:'text',text:'Continue this conversation.'}],source:{kind:'user'}}),{surfaceOp:'append'})
+ const native:ModelSelectionRef={current:{provider:'api',model:'main-old'},assembled:undefined}
+ const offNative=installModelSelection(ctx,native),offRoute=installRoleRouting(ctx,agent,settings,'main')
+ let unblock!:()=>void,entered!:()=>void
+ const gate=new Promise<void>(resolve=>{unblock=resolve}),started=new Promise<void>(resolve=>{entered=resolve})
+ const fragments:string[]=[],received:unknown[]=[]
+ Object.assign(ctx.llm,{stream:async function*(options:any){
+  received.push(options)
+  if(options.messages[0]?.content[0]?.text==='Reply OK.'){
+   if(mode==='agent-failed')throw Error('API unavailable')
+   yield*probeChunks(options);return
+  }
+  yield{type:'block-end',index:0,block:{type:'text',text:'first '}};entered();await gate
+  options.signal.throwIfAborted()
+  yield{type:'block-end',index:1,block:{type:'text',text:'finished'}}
+ }})
+ const request=()=>agentEvents(ctx,agent).waterfall('agent/request',{turn:1,step:1,signal:controller.signal},async()=>({provider:'seed',model:'seed'} as never))
+ let streaming:Promise<void>|undefined
+ try{
+  await ctx.systemPrompt.assemble()
+  const oldRequest=await request(),before=session.snapshotEvents().map(event=>JSON.stringify(event))
+  streaming=(async()=>{for await(const chunk of ctx.llm.stream({...oldRequest,signal:controller.signal,messages:[createUserMessage({content:[{type:'text',text:'Continue this conversation.'}],source:{kind:'user'}})]}))if(chunk.type==='block-end'&&chunk.block.type==='text')fragments.push(chunk.block.text)})()
+  await started
+  const input={scope:'main' as const,selection:{provider:'api',model:'new-model'}}
+  if(mode==='console')await settings.configure(input)
+  else expect((await settings.configureTested(input)).status).toBe(mode==='agent-success'?'updated':'rolled_back')
+  expect(controller.signal.aborted).toBe(false);expect(cancel).not.toHaveBeenCalled()
+  expect(session.snapshotEvents().map(event=>JSON.stringify(event))).toEqual(before)
+  expect((await request()).model).toBe('main-old')
+  unblock();await streaming
+  expect(fragments.join('')).toBe('first finished')
+  expect((received[0] as any).model).toBe('main-old')
+  await ctx.systemPrompt.assemble()
+  expect((await request()).model).toBe(mode==='agent-failed'?'main-old':'new-model')
+  expect(session.id).toBe(`stream-switch-${mode}`)
+  expect(session.snapshotEvents().find(event=>event.type==='user/message')?.data.content).toEqual([{type:'text',text:'Continue this conversation.'}])
+  expect(saveSelection).not.toHaveBeenCalled()
+ }finally{unblock();await streaming?.catch(()=>{});offRoute();offNative()}
 })
