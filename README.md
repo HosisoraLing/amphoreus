@@ -4,7 +4,7 @@
 
 <h1 align="center">翁法罗斯 · Amphoreus</h1>
 
-<p align="center"><strong>把相遇记住，把日子慢慢过下去。</strong><br>基于 DeepSeek Harness 的持续角色运行系统</p>
+<p align="center"><strong>愿此行，终抵群星。</strong><br>基于 DeepSeek Harness 的持续角色运行系统</p>
 
 <p align="center">
   <a href="LICENSE"><img alt="License: AGPL v3 only" src="https://img.shields.io/badge/license-AGPLv3--only-2b7984?style=flat-square"></a>
