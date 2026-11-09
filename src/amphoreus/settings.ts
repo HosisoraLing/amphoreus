@@ -27,7 +27,7 @@ const RuntimePatch=AmphoreusConfig.shape.limits.unwrap().partial().strict().exte
 type Services={runtime:AmphoreusRuntime;memory:MemoryStore;presence?:GroupParticipation;qq?:QQControl;models:ModelSettings;
  organizer:TopicOrganizer;memes:MemeService;telemetry:Telemetry;steps:{mainSteps:number;collaborationSteps:number;reviewSteps:number}}
 const unavailable=():never=>{throw Error('此功能未配置')}
-export async function manageSettings(raw:z.input<typeof SettingsInput>,services:Services){
+export async function manageSettings(raw:z.input<typeof SettingsInput>,services:Services,requestId?:string){
  const input=SettingsInput.parse(raw),{runtime,memory,presence,qq,models,organizer,memes,telemetry,steps}=services
  const {store,role}=runtime,values=input.values
  if(input.conversation_id&&!['participation','qq'].includes(input.section))throw Error('此项不使用conversation_id；渠道开关在values中指定目标')
@@ -52,7 +52,7 @@ export async function manageSettings(raw:z.input<typeof SettingsInput>,services:
    else result=qq!.settings(input.conversation_id)
    break
   case 'models':
-   if(values){const changed=await models.configureTested(ModelInput.parse({...values,...(input.task_id?{task_id:input.task_id}:{})}));if(changed.status==='rolled_back')return changed}
+   if(values)return models.reserve(ModelInput.parse({...values,...(input.task_id?{task_id:input.task_id}:{})}),requestId)
    else result=input.catalog?await models.catalog():await models.status(input.task_id)
    break
   case 'memory':

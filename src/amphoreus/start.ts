@@ -39,11 +39,11 @@ export async function startAmphoreus(ctx: Context, stateDir: string, configPath:
   mkdirSync(stateDir, { recursive: true, mode: 0o700 })
   mkdirSync(config.workspace, { recursive: true, mode: 0o700 })
   const unlock = lockSync(stateDir, { realpath: false })
-  let host: Store | undefined, runtime: AmphoreusRuntime | undefined, api: AmphoreusHttp | undefined, qq: QQAdapter | undefined, dreaming: Dreaming | undefined, lifecycle: TaskLifecycle | undefined, people:PeopleService|undefined,topicOrganizer:TopicOrganizer|undefined, memes:MemeService|undefined, stopped = false
+  let host: Store | undefined, runtime: AmphoreusRuntime | undefined, api: AmphoreusHttp | undefined, qq: QQAdapter | undefined, dreaming: Dreaming | undefined, lifecycle: TaskLifecycle | undefined, people:PeopleService|undefined,topicOrganizer:TopicOrganizer|undefined, memes:MemeService|undefined, modelSettings:ModelSettings|undefined, stopped = false
   const stop = async () => {
     if (stopped) return
     stopped = true
-    try { await topicOrganizer?.stop(); dreaming?.stop(); await qq?.control?.stop(); await qq?.presence?.stop(); await lifecycle?.stop(); await qq?.stop(); await api?.stop(); await runtime?.stop() }
+    try { await topicOrganizer?.stop(); dreaming?.stop(); await qq?.control?.stop(); await qq?.presence?.stop(); await lifecycle?.stop(); await qq?.stop(); await api?.stop(); await runtime?.stop(); await modelSettings?.stop() }
     finally { memes?.stop(); people?.close(); host?.close(); unlock() }
   }
   try {
@@ -63,7 +63,7 @@ export async function startAmphoreus(ctx: Context, stateDir: string, configPath:
     }
     const limits=AmphoreusConfig.shape.limits.parse({...config.limits,...store.record<object>('runtime-settings',role.agent_id)})
     const driver = new DshAgentDriver(ctx, () => role, config.workspace, config.models, limits.mainSteps, archive, limits.collaborationSteps, limits.reviewSteps)
-    driver.modelSettings = new ModelSettings(ctx, store, role.agent_id, config.models)
+    driver.modelSettings = modelSettings = new ModelSettings(ctx, store, role.agent_id, config.models)
     driver.modelSettings.onProbe=(selected,usage,duration,ok,scope)=>telemetry.auxiliary(selected.provider,selected.model,usage,duration,ok,scope,'model-test')
     driver.onMetric=(kind,session,data)=>telemetry.metric(kind,session,data,archive.binding(session))
     memes=new MemeService(ctx,join(stateDir,'../../amphoreus/memes'),store,()=>driver.modelSettings!.configured('worker')??driver.modelSettings!.configured('main'),(...args)=>telemetry.auxiliary(...args,'meme'))
@@ -126,7 +126,7 @@ export async function startAmphoreus(ctx: Context, stateDir: string, configPath:
     if(!qq?.blocklist)driver.media.canAdmit=event=>runtime!.controls.allows(event)
     driver.canAdmit=event=>runtime!.controls.allows(event)
     runtime.prepareOutput=async(content,target)=>driver.media!.outgoing(await memes!.outgoing(content,target.platform),[config.workspace,join(stateDir,'../../attachments'),memes!.root])
-    driver.manageSettings=input=>manageSettings(input,{runtime:runtime!,memory,presence:qq?.presence,qq:qq?.control,models:driver.modelSettings!,organizer:topicOrganizer!,memes:memes!,telemetry,steps:driver})
+    driver.manageSettings=(input,requestId)=>manageSettings(input,{runtime:runtime!,memory,presence:qq?.presence,qq:qq?.control,models:driver.modelSettings!,organizer:topicOrganizer!,memes:memes!,telemetry,steps:driver},requestId)
     api = new AmphoreusHttp(runtime, config.api, qq, (task, offset, limit) => readTaskActivity(ctx, task, offset, limit,
       secrets), memory, dreaming,driver.media,nativeFooterReader(ctx),people,driver.modelSettings,topicOrganizer,telemetry,memes)
     topicOrganizer.canRun=()=>runtime!.controls.enabled
@@ -158,6 +158,7 @@ export async function startAmphoreus(ctx: Context, stateDir: string, configPath:
     await archive.backfill([...bindings.values()])
     await telemetry.backfill(ctx, [...bindings.values()])
     runtime.applyControls()
+    modelSettings.start()
     await runtime.start()
     qq?.presence?.start()
     qq?.control?.start()

@@ -24,7 +24,7 @@ function setup(){
  const qq=new QQControl(runtime,'123'),organizer=new TopicOrganizer(memory,store,async()=>({groups:[]}))
  const memes=new MemeService({} as never,join(dir,'memes'),store,()=>null);mkdirSync(memes.root)
  writeFileSync(memes.settingsFile,JSON.stringify({sendMode:'auto',privateRemoteToken:'never-return-this',sendChance:30}))
- const steps={mainSteps:8,collaborationSteps:60,reviewSteps:16},models={configureTested:vi.fn(async()=>({status:'updated',message:''})),status:vi.fn(async()=>({roles:{}})),catalog:vi.fn(async()=>({groups:[]}))}
+ const steps={mainSteps:8,collaborationSteps:60,reviewSteps:16},models={reserve:vi.fn(()=>({status:'reserved',message:'已预订'})),status:vi.fn(async()=>({roles:{}})),catalog:vi.fn(async()=>({groups:[]}))}
  const services={runtime,memory,presence,qq,organizer,memes,telemetry:new Telemetry(memory,store),steps,models:models as never}
  clean.push(()=>{host.close();rmSync(dir,{recursive:true,force:true})});clean.push(()=>presence.stop());clean.push(()=>qq.stop())
  return{...services,models,dir,host,store,call:(input:Parameters<typeof manageSettings>[0])=>manageSettings(input,services)}
@@ -46,7 +46,7 @@ it('updates shared application settings partially, persists policy and limits, a
  expect(f.runtime.limits).toMatchObject({maxWorkers:4,mainTimeoutMs:0})
  expect(f.steps.mainSteps).toBe(12);expect(f.store.record('runtime-settings','role')).toMatchObject({resumeOnRestart:false,maxWorkers:4})
  await f.call({section:'models',values:{scope:'worker',selection:{provider:'known',model:'coding'}}})
- expect(f.models.configureTested).toHaveBeenCalledWith({scope:'worker',selection:{provider:'known',model:'coding'}})
+ expect(f.models.reserve).toHaveBeenCalledWith({scope:'worker',selection:{provider:'known',model:'coding'}},undefined)
  await f.call({section:'memes',values:{sendMode:'text',sendChanceEnabled:true}})
  expect(f.memes.settings()).toMatchObject({sendMode:'text',sendChance:30,privateRemoteToken:'never-return-this'})
  expect(JSON.stringify(await f.call({section:'memes'}))).not.toContain('never-return-this')
@@ -66,18 +66,21 @@ it('registers the settings capability only on Main using plain JSON tool paramet
  const driver=new DshAgentDriver({on:vi.fn(()=>()=>{})} as never,()=>({agent_id:'role',name:'role',persona:'persona'}),'/unused',{main:null,worker:null},8)
  ;(driver as any).ensure=async()=>({id:'main',session:{},ctx:{get:()=>undefined,tools:{register:vi.fn()}}})
  driver.manageSettings=vi.fn(async()=>({status:'updated'}))
- const registered=new Map<string,any>();(driver as any).register=(_agent:unknown,name:string,_description:string,schema:unknown,execute:unknown)=>{registered.set(name,{schema,execute});return()=>{}}
+ const registered=new Map<string,any>();(driver as any).register=(_agent:unknown,name:string,_description:string,schema:unknown,execute:unknown,render:unknown)=>{registered.set(name,{schema,execute,render});return()=>{}}
  ;(driver as any).run=async(agent:unknown,_id:unknown,_input:unknown,_prompt:unknown,_worker:unknown,_signal:unknown,tools:(agent:unknown)=>unknown)=>{tools(agent)}
  const event={event_id:'source',source_kind:'web',platform:'web',account_id:'owner',conversation_id:'web:owner:chat',actor_id:'owner',metadata:{},content:[{type:'text',text:'settings'}]}
  await driver.main({event,origin:event,runId:'run'} as never,new AbortController().signal)
  const tool=registered.get('amphoreus_settings');expect(tool).toBeDefined()
- await tool.execute(SettingsInput.parse({section:'runtime',values:{resumeOnRestart:false}}))
- expect(driver.manageSettings).toHaveBeenCalledWith(expect.objectContaining({section:'runtime',values:{resumeOnRestart:false}}))
+ await tool.execute(SettingsInput.parse({section:'runtime',values:{resumeOnRestart:false}}),'tool-call')
+ expect(driver.manageSettings).toHaveBeenCalledWith(expect.objectContaining({section:'runtime',values:{resumeOnRestart:false}}),'run:tool-call')
+ vi.mocked(driver.manageSettings!).mockResolvedValueOnce({status:'reserved',message:'已预订'})
+ const reserved=await tool.execute(SettingsInput.parse({section:'models',values:{scope:'main',selection:null}}),'change-call')
+ expect(tool.render(reserved)).toEqual([{type:'text',text:'已预订'}])
 })
 
-it('returns the model API rollback receipt directly instead of reporting a successful settings update',async()=>{
+it('returns only a reservation receipt without waiting for a model API request',async()=>{
  const f=setup()
- f.models.configureTested.mockResolvedValueOnce({status:'rolled_back',message:'模型API测试失败，已回退'})
- expect(await f.call({section:'models',values:{scope:'main',selection:{provider:'known',model:'unavailable'}}})).toEqual({status:'rolled_back',message:'模型API测试失败，已回退'})
+ expect(await f.call({section:'models',values:{scope:'main',selection:{provider:'known',model:'unavailable'}}})).toEqual({status:'reserved',message:'已预订'})
+ expect(f.models.reserve).toHaveBeenCalledOnce()
  expect(f.store.record('settings-change','role:models')).toBeUndefined()
 })
