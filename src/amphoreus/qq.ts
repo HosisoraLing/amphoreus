@@ -94,9 +94,12 @@ function outbound(content: ContentBlock[], reply?: string) {
   }
   return result
 }
-class OneBotRejected extends Error {}
+export class OneBotRejected extends Error {}
 export class QQAdapter implements OutputAdapter {
   groupConversations(){return [...this.groups].map(([id,title])=>({platform:'qq',account_id:this.config.accountId,conversation_id:`group:${id}`,title}))}
+  updateGroups(rows:Record<string,unknown>[]){for(const row of rows)if(/^\d+$/.test(String(row.group_id)))this.groups.set(String(row.group_id),String(row.group_name??row.group_id))}
+  removeGroup(id:string){this.groups.delete(id)}
+  onRequest?: (raw:unknown)=>Promise<void>
   presence?: GroupParticipation
   control?: QQControl
   blocklist?:UserBlocklist
@@ -173,6 +176,7 @@ export class QQAdapter implements OutputAdapter {
         else pending.reject(new OneBotRejected(`OneBot rejected action (${Number(raw.retcode) || 'error'})`))
       } else if (raw.post_type === 'meta_event') this.lastPong = Date.now()
       else if (raw.post_type === 'message') void this.receive(raw).catch(() => this.changed('error', 'OneBot event rejected'))
+      else if (raw.post_type === 'request') void this.onRequest?.(raw).catch(() => { this.lastError='QQ request event rejected';this.runtime.onChange() })
     })
     socket.once('close', () => {
       if (this.socket !== socket) return

@@ -47,6 +47,29 @@ it('projects Zod-generated memory and media parameters through the native lossle
   } finally { disposers.reverse().forEach(dispose => dispose()) }
 })
 
+it('registers QQ management on Main with native JSON schemas and a stable per-run call identity',async()=>{
+  const root=new Context();contexts.push(root)
+  await root.plugin(SystemPrompt);await root.plugin(ToolRuntime)
+  const ctx=await new Promise<Context>(resolve=>{root.inject(['tools'],child=>resolve(child))})
+  const session=Session.create(SessionId('qq-management')),agent={id:session.id,session} as Agent
+  Object.assign(agent,{ctx:createScope(ctx,agent).ctx})
+  const execute=vi.fn(async()=>({status:'success'}))
+  const driver=new DshAgentDriver(ctx,()=>({agent_id:'role',name:'角色',persona:'人设'}),'/unused',{main:null,worker:null},8)
+  driver.qqManagement={execute} as never
+  ;(driver as any).ensure=async()=>agent
+  ;(driver as any).run=async(_agent:Agent,_id:unknown,_input:unknown,_prompt:unknown,_worker:unknown,signal:AbortSignal,tools:(agent:Agent)=>(()=>void)[])=>{
+    const disposers=tools(agent)
+    try{
+      expect(agent.ctx.tools.schemas(agent).find(t=>t.name==='qq_manage')?.parameters).toMatchObject({additionalProperties:false,properties:{action:{enum:expect.arrayContaining(['friends','request_handle','group_leave'])}}})
+      const result=await agent.ctx.tools.execute({agent,name:'qq_manage',arguments:{action:'friend_delete',user_id:'456'},callId:ToolCallId('delete'),signal})
+      expect(result.isError).toBe(false)
+      expect(execute).toHaveBeenCalledWith(expect.objectContaining({action:'friend_delete',user_id:'456'}),'run:delete')
+    }finally{disposers.reverse().forEach(dispose=>dispose())}
+  }
+  const event={event_id:'source',source_kind:'web',platform:'web',account_id:'owner',conversation_id:'web:owner:chat',actor_id:'owner',timestamp:new Date().toISOString(),metadata:{},content:[{type:'text',text:'管理QQ'}]}
+  await driver.main({event,origin:event,runId:'run'} as never,new AbortController().signal)
+})
+
 it.each([
   ['main', false, false, false], ['worker', true, false, false],
   ['continuation', true, true, false], ['topic', true, false, true],
@@ -58,6 +81,7 @@ it.each([
   register(preset.ctx, 'web_search')
   register(preset.ctx, 'memory_confirm')
   register(preset.ctx, 'amphoreus_settings')
+  register(preset.ctx, 'qq_manage')
   register(preset.ctx, 'speak')
   register(preset.ctx, 'deja_recall')
   const session = Session.create(SessionId(role)), agent = { id: session.id, session } as Agent
@@ -76,6 +100,7 @@ it.each([
   expect(custom.execute).toHaveBeenCalledOnce()
   expect((await call('memory_confirm')).isError).toBe(worker)
   expect((await call('amphoreus_settings')).isError).toBe(worker)
+  expect((await call('qq_manage')).isError).toBe(worker)
   expect((await call('speak')).isError).toBe(worker)
   expect((await call('deja_recall')).isError).toBe(!worker || continuation || topic)
   // Even a tool registered directly on the Session cannot bypass role ownership.

@@ -18,6 +18,7 @@ import { TaskLifecycle } from './lifecycle.ts'
 import { MediaInput } from './media.ts'
 import { GroupParticipation } from './participation.ts'
 import { QQControl } from './qq-control.ts'
+import { QQManagement } from './qq-management.ts'
 import { UserBlocklist } from './blocklist.ts'
 import { nativeFooterReader } from './usage.ts'
 import { Recollection } from './recollection.ts'
@@ -39,11 +40,11 @@ export async function startAmphoreus(ctx: Context, stateDir: string, configPath:
   mkdirSync(stateDir, { recursive: true, mode: 0o700 })
   mkdirSync(config.workspace, { recursive: true, mode: 0o700 })
   const unlock = lockSync(stateDir, { realpath: false })
-  let host: Store | undefined, runtime: AmphoreusRuntime | undefined, api: AmphoreusHttp | undefined, qq: QQAdapter | undefined, dreaming: Dreaming | undefined, lifecycle: TaskLifecycle | undefined, people:PeopleService|undefined,topicOrganizer:TopicOrganizer|undefined, memes:MemeService|undefined, modelSettings:ModelSettings|undefined, stopped = false
+  let host: Store | undefined, runtime: AmphoreusRuntime | undefined, api: AmphoreusHttp | undefined, qq: QQAdapter | undefined, qqManagement:QQManagement|undefined, dreaming: Dreaming | undefined, lifecycle: TaskLifecycle | undefined, people:PeopleService|undefined,topicOrganizer:TopicOrganizer|undefined, memes:MemeService|undefined, modelSettings:ModelSettings|undefined, stopped = false
   const stop = async () => {
     if (stopped) return
     stopped = true
-    try { await topicOrganizer?.stop(); dreaming?.stop(); await qq?.control?.stop(); await qq?.presence?.stop(); await lifecycle?.stop(); await qq?.stop(); await api?.stop(); await runtime?.stop(); await modelSettings?.stop() }
+    try { await topicOrganizer?.stop(); dreaming?.stop(); await qq?.control?.stop(); await qq?.presence?.stop(); await lifecycle?.stop(); await qq?.stop(); qqManagement?.stop(); await api?.stop(); await runtime?.stop(); await modelSettings?.stop() }
     finally { memes?.stop(); people?.close(); host?.close(); unlock() }
   }
   try {
@@ -96,6 +97,8 @@ export async function startAmphoreus(ctx: Context, stateDir: string, configPath:
       return block.type==='image'?ctx.attachments.imageHostPath(block.attachment as never):ctx.attachments.fileHostPath(block.attachment as never)
     })
     if (qq && config.qq?.enabled) {
+      driver.qqManagement=qqManagement=new QQManagement(runtime,qq)
+      qq.onRequest=raw=>qqManagement!.receive(raw)
       qq.presence = new GroupParticipation(runtime,config.qq,(action,params)=>qq!.request(action,params))
       driver.presence = qq.presence
       qq.control=new QQControl(runtime,config.qq.accountId)
